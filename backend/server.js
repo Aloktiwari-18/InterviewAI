@@ -6,6 +6,7 @@ const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
 const path = require('path');
 require('dotenv').config({ path: '../.env' });
+
 const authRoutes = require('./routes/auth');
 const resumeRoutes = require('./routes/resume');
 const interviewRoutes = require('./routes/interview');
@@ -13,11 +14,17 @@ const feedbackRoutes = require('./routes/feedback');
 
 const app = express();
 
-// Security middleware
+
+// ======================
+// 🔐 SECURITY MIDDLEWARE
+// ======================
 app.use(helmet());
 app.use(morgan('dev'));
 
-// Rate limiting
+
+// ======================
+// 🚦 RATE LIMITING
+// ======================
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 100,
@@ -25,32 +32,65 @@ const limiter = rateLimit({
 });
 app.use('/api/', limiter);
 
-// ✅ CORS FIX (important)
 
-app.use(cors({
+// ======================
+// 🌐 CORS CONFIG (FINAL FIX)
+// ======================
+const corsOptions = {
   origin: [
     "http://localhost:3000",
     "https://interview-ai-one-sepia.vercel.app"
   ],
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
   credentials: true
-}));
+};
 
-app.options('*', cors());
+app.use(cors(corsOptions));
 
-// Body parsing
+// ✅ Preflight fix
+app.options("*", cors(corsOptions));
+
+// ✅ Extra safety (Render fix)
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "https://interview-ai-one-sepia.vercel.app");
+  res.header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.header("Access-Control-Allow-Credentials", "true");
+
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200);
+  }
+
+  next();
+});
+
+
+// ======================
+// 📦 BODY PARSER
+// ======================
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Static files
+
+// ======================
+// 📁 STATIC FILES
+// ======================
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// Routes
+
+// ======================
+// 🚀 ROUTES
+// ======================
 app.use('/api/auth', authRoutes);
 app.use('/api/resume', resumeRoutes);
 app.use('/api/interview', interviewRoutes);
 app.use('/api/feedback', feedbackRoutes);
 
-// ✅ Health check (important for testing)
+
+// ======================
+// ❤️ HEALTH CHECK
+// ======================
 app.get('/api/health', (req, res) => {
   res.json({ 
     status: 'OK', 
@@ -59,7 +99,10 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Error handler
+
+// ======================
+// ❌ ERROR HANDLER
+// ======================
 app.use((err, req, res, next) => {
   console.error(err.stack);
   res.status(err.statusCode || 500).json({
@@ -67,7 +110,10 @@ app.use((err, req, res, next) => {
   });
 });
 
-// ✅ DB + Server start
+
+// ======================
+// 🗄️ DB + SERVER START
+// ======================
 mongoose.connect(process.env.MONGO_URI)
   .then(() => {
     console.log('✅ MongoDB connected');
