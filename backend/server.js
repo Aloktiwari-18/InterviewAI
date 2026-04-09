@@ -26,10 +26,16 @@ const limiter = rateLimit({
 app.use('/api/', limiter);
 
 // ✅ CORS FIX (important)
+
 app.use(cors({
-  origin: "*", // production ke liye (baad me restrict kar sakta hai)
+  origin: [
+    "http://localhost:3000",
+    "https://interview-ai-one-sepia.vercel.app"
+  ],
   credentials: true
 }));
+
+app.options('*', cors());
 
 // Body parsing
 app.use(express.json({ limit: '10mb' }));

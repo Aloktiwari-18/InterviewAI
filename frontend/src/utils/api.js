@@ -1,66 +1,101 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: process.env.REACT_APP_API_URL, // ❗ fallback hata diya
+  baseURL: process.env.REACT_APP_API_URL, // make sure .env me set ho
   timeout: 60000,
 });
 
-// Request interceptor
+// 🔐 REQUEST INTERCEPTOR
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
-    if (token) config.headers.Authorization = `Bearer ${token}`;
+
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+
     return config;
   },
   (error) => Promise.reject(error)
 );
 
-// Response interceptor
+// 🚨 RESPONSE INTERCEPTOR (FIXED)
 api.interceptors.response.use(
-  (res) => res,
+  (response) => response,
   (error) => {
+    // 🔒 Unauthorized handling
     if (error.response?.status === 401) {
       localStorage.removeItem('token');
       window.location.href = '/login';
     }
-    return Promise.reject(
-      error.response?.data?.error || error.message || 'Something went wrong'
-    );
+
+    // ✅ ALWAYS RETURN STRING MESSAGE
+    const message =
+      error.response?.data?.message ||   // backend standard
+      error.response?.data?.error ||     // fallback
+      error.message ||                   // axios error
+      'Something went wrong';
+
+    return Promise.reject(message); // 🔥 IMPORTANT
   }
 );
 
-// Auth
+
+// ================= AUTH =================
 export const authAPI = {
-  login: (d) => api.post('/api/auth/login', d),
-  register: (d) => api.post('/api/auth/register', d),
+  login: (data) => api.post('/api/auth/login', data),
+  register: (data) => api.post('/api/auth/register', data),
   me: () => api.get('/api/auth/me'),
 };
 
-// Interview
+
+// ================= INTERVIEW =================
 export const interviewAPI = {
-  generateQuestions: (d) => api.post('/api/interview/generate-questions', d),
-  start: (id) => api.post(`/api/interview/start/${id}`),
-  submitAnswer: (id, d) => api.post(`/api/interview/submit-answer/${id}`, d),
-  complete: (id) => api.post(`/api/interview/complete/${id}`),
-  getHistory: () => api.get('/api/interview/history'),
-  getById: (id) => api.get(`/api/interview/${id}`),
+  generateQuestions: (data) =>
+    api.post('/api/interview/generate-questions', data),
+
+  start: (id) =>
+    api.post(`/api/interview/start/${id}`),
+
+  submitAnswer: (id, data) =>
+    api.post(`/api/interview/submit-answer/${id}`, data),
+
+  complete: (id) =>
+    api.post(`/api/interview/complete/${id}`),
+
+  getHistory: () =>
+    api.get('/api/interview/history'),
+
+  getById: (id) =>
+    api.get(`/api/interview/${id}`),
 };
 
-// Resume
+
+// ================= RESUME =================
 export const resumeAPI = {
   upload: (formData) =>
     api.post('/api/resume/upload', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
+      headers: { 'Content-Type': 'multipart/form-data' },
     }),
-  analyze: (d) => api.post('/api/resume/analyze', d),
-  getHistory: () => api.get('/api/resume/history'),
-  getById: (id) => api.get(`/api/resume/${id}`),
+
+  analyze: (data) =>
+    api.post('/api/resume/analyze', data),
+
+  getHistory: () =>
+    api.get('/api/resume/history'),
+
+  getById: (id) =>
+    api.get(`/api/resume/${id}`),
 };
 
-// Feedback
+
+// ================= FEEDBACK =================
 export const feedbackAPI = {
-  getInterview: (id) => api.get(`/api/feedback/interview/${id}`),
-  getDashboard: () => api.get('/api/feedback/dashboard'),
+  getInterview: (id) =>
+    api.get(`/api/feedback/interview/${id}`),
+
+  getDashboard: () =>
+    api.get('/api/feedback/dashboard'),
 };
 
 export default api;

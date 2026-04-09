@@ -10,6 +10,7 @@ const {
 
 const router = express.Router();
 
+
 // ============================
 // 🎯 GENERATE QUESTIONS
 // ============================
@@ -18,34 +19,29 @@ router.post('/generate-questions', protect, async (req, res) => {
     const { jobTitle, jobDescription, resumeText } = req.body;
 
     if (!jobTitle) {
-      return res.status(400).json({ error: 'Job title is required' });
+      return res.status(400).json({ message: 'Job title is required' });
     }
 
-    // 🔥 STEP 1: AI call
     const questionsRaw = await generateInterviewQuestions(
       jobTitle,
       jobDescription,
       resumeText
     );
 
-    // 🔥 STEP 2: NORMALIZE (MAIN FIX)
+    // ✅ Normalize (important)
     const questions = questionsRaw.map(q =>
       typeof q === "string" ? q : q.question
     );
 
-    console.log("✅ FINAL QUESTIONS:", questions);
-
-    // 🔥 STEP 3: SAVE
     const interview = await Interview.create({
       user: req.user._id,
       jobTitle,
       jobDescription,
       resumeText,
-      questions, // ✅ always string array
+      questions,
       status: 'pending'
     });
 
-    // 🔥 STEP 4: RESPONSE
     res.json({
       success: true,
       interviewId: interview._id,
@@ -54,9 +50,12 @@ router.post('/generate-questions', protect, async (req, res) => {
 
   } catch (error) {
     console.error("❌ GENERATE ERROR:", error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({
+      message: error.message || 'Failed to generate questions'
+    });
   }
 });
+
 
 // ============================
 // 🚀 START INTERVIEW
@@ -69,20 +68,26 @@ router.post('/start/:id', protect, async (req, res) => {
     });
 
     if (!interview) {
-      return res.status(404).json({ error: 'Interview not found' });
+      return res.status(404).json({ message: 'Interview not found' });
     }
 
     interview.status = 'in-progress';
     interview.startedAt = new Date();
     await interview.save();
 
-    res.json({ message: 'Interview started', interview });
+    res.json({
+      message: 'Interview started',
+      interview
+    });
 
   } catch (error) {
     console.error("❌ START ERROR:", error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({
+      message: error.message || 'Failed to start interview'
+    });
   }
 });
+
 
 // ============================
 // 📝 SUBMIT ANSWER
@@ -97,7 +102,7 @@ router.post('/submit-answer/:id', protect, async (req, res) => {
     });
 
     if (!interview) {
-      return res.status(404).json({ error: 'Interview not found' });
+      return res.status(404).json({ message: 'Interview not found' });
     }
 
     const question = interview.questions[questionIndex];
@@ -134,9 +139,12 @@ router.post('/submit-answer/:id', protect, async (req, res) => {
 
   } catch (error) {
     console.error("❌ SUBMIT ERROR:", error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({
+      message: error.message || 'Failed to submit answer'
+    });
   }
 });
+
 
 // ============================
 // ✅ COMPLETE INTERVIEW
@@ -149,7 +157,7 @@ router.post('/complete/:id', protect, async (req, res) => {
     });
 
     if (!interview) {
-      return res.status(404).json({ error: 'Interview not found' });
+      return res.status(404).json({ message: 'Interview not found' });
     }
 
     const questions = interview.questions;
@@ -196,9 +204,12 @@ router.post('/complete/:id', protect, async (req, res) => {
 
   } catch (error) {
     console.error("❌ COMPLETE ERROR:", error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({
+      message: error.message || 'Failed to complete interview'
+    });
   }
 });
+
 
 // ============================
 // 📜 HISTORY
@@ -214,9 +225,12 @@ router.get('/history', protect, async (req, res) => {
 
   } catch (error) {
     console.error("❌ HISTORY ERROR:", error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({
+      message: error.message || 'Failed to fetch history'
+    });
   }
 });
+
 
 // ============================
 // 📄 GET SINGLE INTERVIEW
@@ -229,14 +243,16 @@ router.get('/:id', protect, async (req, res) => {
     });
 
     if (!interview) {
-      return res.status(404).json({ error: 'Interview not found' });
+      return res.status(404).json({ message: 'Interview not found' });
     }
 
     res.json({ interview });
 
   } catch (error) {
     console.error("❌ GET ERROR:", error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({
+      message: error.message || 'Failed to fetch interview'
+    });
   }
 });
 
