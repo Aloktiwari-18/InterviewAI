@@ -5,8 +5,7 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
 const path = require('path');
-require('dotenv').config({ path: '../.env' });
-
+require('dotenv').config();
 const authRoutes = require('./routes/auth');
 const resumeRoutes = require('./routes/resume');
 const interviewRoutes = require('./routes/interview');
