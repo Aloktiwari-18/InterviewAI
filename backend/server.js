@@ -5,29 +5,29 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
 const path = require('path');
-
+require('dotenv').config({ path: '../.env' });
 const authRoutes = require('./routes/auth');
 const resumeRoutes = require('./routes/resume');
 const interviewRoutes = require('./routes/interview');
 const feedbackRoutes = require('./routes/feedback');
-require('dotenv').config();
+
 const app = express();
-require('dotenv').config({ path: '../.env' });
+
 // Security middleware
 app.use(helmet());
 app.use(morgan('dev'));
 
 // Rate limiting
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
+  windowMs: 15 * 60 * 1000,
   max: 100,
   message: { error: 'Too many requests, please try again later.' }
 });
 app.use('/api/', limiter);
 
-// CORS
+// ✅ CORS FIX (important)
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  origin: "*", // production ke liye (baad me restrict kar sakta hai)
   credentials: true
 }));
 
@@ -35,7 +35,7 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Static files for uploads
+// Static files
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Routes
@@ -44,7 +44,7 @@ app.use('/api/resume', resumeRoutes);
 app.use('/api/interview', interviewRoutes);
 app.use('/api/feedback', feedbackRoutes);
 
-// Health check
+// ✅ Health check (important for testing)
 app.get('/api/health', (req, res) => {
   res.json({ 
     status: 'OK', 
@@ -53,30 +53,28 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Global error handler
+// Error handler
 app.use((err, req, res, next) => {
   console.error(err.stack);
-  const statusCode = err.statusCode || 500;
-  res.status(statusCode).json({
-    error: err.message || 'Internal Server Error',
-    ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
+  res.status(err.statusCode || 500).json({
+    error: err.message || 'Internal Server Error'
   });
 });
 
-// Database connection
+// ✅ DB + Server start
 mongoose.connect(process.env.MONGO_URI)
   .then(() => {
-    console.log('✅ MongoDB connected successfully');
+    console.log('✅ MongoDB connected');
+
     const PORT = process.env.PORT || 5000;
+
     app.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`);
-      console.log(`📡 API available at http://localhost:${PORT}/api`);
     });
   })
   .catch((err) => {
-    console.error('❌ MongoDB connection error:', err.message);
+    console.error('❌ MongoDB error:', err.message);
     process.exit(1);
   });
 
 module.exports = app;
-console.log("ENV MODEL:", process.env.HUGGINGFACE_MODEL);
