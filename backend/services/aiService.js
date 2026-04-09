@@ -1,4 +1,3 @@
-
 require('dotenv').config({ path: '../.env' });
 
 const OpenAI = require("openai");
@@ -8,23 +7,19 @@ const client = new OpenAI({
 });
 
 // ============================
-// 🔥 MAIN CALL FUNCTION
+// 🔥 COMMON AI CALL
 // ============================
 async function callAI(prompt, maxTokens = 1000) {
   try {
-    console.log("🚀 Calling OpenAI...");
-
     const response = await client.chat.completions.create({
-      model: "gpt-4o-mini", // fast + cheap + best
+      model: "gpt-4o-mini",
       messages: [
-        { role: "system", content: "You are an expert AI interviewer and evaluator." },
+        { role: "system", content: "You are an expert AI interviewer and resume evaluator." },
         { role: "user", content: prompt }
       ],
       max_tokens: maxTokens,
       temperature: 0.7,
     });
-
-    console.log("✅ OpenAI Response received");
 
     return response.choices[0].message.content;
 
@@ -34,34 +29,37 @@ async function callAI(prompt, maxTokens = 1000) {
   }
 }
 
+//
 // ============================
 // 🎯 INTERVIEW QUESTIONS
 // ============================
 async function generateInterviewQuestions(jobTitle, jobDescription, resumeText) {
   const prompt = `
-Generate exactly 15 interview questions for ${jobTitle}.
-Job Description: ${jobDescription}
-Resume: ${resumeText}
+Generate exactly 15 interview questions for ${jobTitle} role.
 
-Return ONLY JSON array.
+Job Description:
+${jobDescription}
+
+Candidate Resume:
+${resumeText}
+
+Return ONLY valid JSON array of strings.
 `;
 
   const response = await callAI(prompt);
 
   try {
     const jsonMatch = response.match(/\[[\s\S]*\]/);
-    const parsed = JSON.parse(jsonMatch[0]);
-
-    // ✅ FIXED FORMAT
-    return parsed.map(q => ({
+    return JSON.parse(jsonMatch[0]).map(q => ({
       question: typeof q === "string" ? q : q.question
     }));
-
   } catch (err) {
-    console.error("❌ Parsing error:", err.message);
+    console.error("❌ Question parsing error:", err.message);
     throw new Error("Invalid AI response format");
   }
 }
+
+//
 // ============================
 // 🎯 ANSWER EVALUATION
 // ============================
@@ -69,15 +67,27 @@ async function evaluateInterviewAnswers(questions, answers, jobTitle) {
   const qa = questions.map((q, i) => `Q${i+1}: ${q}\nA${i+1}: ${answers[i]}`).join("\n\n");
 
   const prompt = `
-Evaluate these answers for ${jobTitle}.
+Evaluate the following answers for ${jobTitle}.
 
 ${qa}
 
 Return JSON:
 {
-  scores: { overall, communication, technical, confidence, relevance },
-  feedback: { summary, strengths, weaknesses, improvements, verdict },
-  answerScores: []
+  "scores": {
+    "overall": number,
+    "communication": number,
+    "technical": number,
+    "confidence": number,
+    "relevance": number
+  },
+  "feedback": {
+    "summary": "",
+    "strengths": [],
+    "weaknesses": [],
+    "improvements": [],
+    "verdict": ""
+  },
+  "answerScores": []
 }
 `;
 
@@ -91,43 +101,56 @@ Return JSON:
   }
 }
 
+//
 // ============================
-// 🎯 RESUME ANALYSIS
+// 🎯 RESUME AI ANALYSIS (ONLY AI PART)
 // ============================
-async function analyzeResume(resumeText, jobDescription) {
+// ⚠️ NO scoring, NO keywords here
+//
+async function analyzeResumeAI(resumeText, jobDescription) {
   const prompt = `
-Analyze this resume vs job description.
+Analyze this resume against the job description.
 
-Resume: ${resumeText}
-Job: ${jobDescription}
+Resume:
+${resumeText}
+
+Job Description:
+${jobDescription}
 
 Return JSON:
 {
-  scores: {},
-  matchedKeywords: [],
-  missingKeywords: [],
-  suggestions: []
+  "suggestions": [],
+  "rewrittenSummary": "",
+  "strengths": [],
+  "weaknesses": []
 }
 `;
 
-  const response = await callAI(prompt, 1500);
+  const response = await callAI(prompt, 1200);
 
   try {
     const jsonMatch = response.match(/\{[\s\S]*\}/);
     return JSON.parse(jsonMatch[0]);
   } catch {
-    throw new Error("Invalid resume analysis response");
+    return {
+      suggestions: [],
+      rewrittenSummary: "",
+      strengths: [],
+      weaknesses: []
+    };
   }
 }
 
+//
 // ============================
-// 🎯 SAMPLE ANSWER
+// 🎯 SAMPLE ANSWER GENERATOR
 // ============================
 async function generateSampleAnswer(question, jobTitle) {
   const prompt = `
-Give a perfect answer for ${jobTitle} role:
+Provide a strong and professional answer for a ${jobTitle} role.
 
-Question: ${question}
+Question:
+${question}
 
 Max 150 words.
 `;
@@ -135,9 +158,13 @@ Max 150 words.
   return await callAI(prompt, 300);
 }
 
+//
+// ============================
+// 🚀 EXPORTS
+// ============================
 module.exports = {
   generateInterviewQuestions,
   evaluateInterviewAnswers,
-  analyzeResume,
+  analyzeResumeAI,
   generateSampleAnswer
 };
