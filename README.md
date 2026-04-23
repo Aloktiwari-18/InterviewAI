@@ -353,3 +353,10 @@ MIT License — Free to use, modify, and deploy.
 ---
 
 Built with ❤️ | MERN + Llama 3.1 + LangChain | InterviewAI 2025
+
+
+<img width="2816" height="1536" alt="Gemini_Generated_Image_8u0z178u0z178u0z" src="https://github.com/user-attachments/assets/4d15dd27-8861-4eb9-8bca-83765f3f7e32" />
+
+
+https://github.com/user-attachments/assets/4dc406a2-d1e8-45de-9bd4-c70295136a47
+
