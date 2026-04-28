@@ -5,7 +5,7 @@ const fs = require('fs');
 const { protect } = require('../middleware/auth');
 const ATSAnalysis = require('../models/ATSAnalysis');
 const User = require('../models/User');
-const { analyzeResumeAI, parseResumeStructured } = require('../services/aiService');
+const { analyzeResumeWithSemanticMatching, parseResumeStructured } = require('../services/semanticAnalyzer');
 
 const router = express.Router();
 
@@ -54,27 +54,15 @@ async function extractTextFromFile(filePath, mimeType) {
       return data.text;
     }
     
-    // ✅ FIX: Support DOCX files
-    if (ext === '.docx') {
+    // Support DOCX files with mammoth
+    if (ext === '.docx' || ext === '.doc') {
       try {
         const mammoth = require('mammoth');
         const result = await mammoth.extractRawText({ path: filePath });
         return result.value;
       } catch (mammothErr) {
-        console.warn('Mammoth extraction failed, trying docx package:', mammothErr.message);
-        const docx = require('docx-parser');
-        return await docx.parseAsync(filePath);
-      }
-    }
-    
-    // ✅ FIX: Support DOC files (legacy)
-    if (ext === '.doc') {
-      try {
-        const docx = require('docx-parser');
-        return await docx.parseAsync(filePath);
-      } catch (docxErr) {
-        console.error('DOC extraction error:', docxErr.message);
-        return 'Resume extraction: .DOC files are legacy. Please convert to PDF or DOCX.';
+        console.warn('Mammoth extraction failed:', mammothErr.message);
+        return 'Unable to extract text from DOCX. Please upload a PDF or TXT file.';
       }
     }
     
@@ -110,44 +98,46 @@ router.post('/analyze', protect, async (req, res) => {
   }
 
   try {
-    // ✅ FIX 1: Use structured analysis from AI service
-    const structuredResume = await parseResumeStructured(resumeText);
+    console.log('🚀 Starting production semantic resume analysis...');
     
-    // ✅ FIX 2: Get detailed AI analysis
-    const analysis = await analyzeResumeAI(resumeText, jobDescription);
+    // ✅ Use new semantic analyzer with LangChain
+    const analysis = await analyzeResumeWithSemanticMatching(resumeText, jobDescription);
+    
+    const structuredResume = analysis.structuredResume || {};
 
-    // ✅ FIX 3: Improved section detection with structured data
+    // ✅ Improved section detection
     const sections = {
-      hasContact: !!(
-        structuredResume.personalInfo.email || 
-        structuredResume.personalInfo.phone ||
-        structuredResume.personalInfo.linkedin
-      ),
-      hasSummary: !!(structuredResume.summary && structuredResume.summary.trim().length > 0),
-      hasExperience: structuredResume.experience.length > 0,
-      hasEducation: structuredResume.education.length > 0,
-      hasSkills: Object.values(structuredResume.skills).some(arr => arr.length > 0),
-      hasProjects: structuredResume.projects.length > 0,
-      hasCertifications: structuredResume.certifications.length > 0
+      hasContact: true,
+      hasSummary: !!(analysis.rewrittenSummary && analysis.rewrittenSummary.length > 10),
+      hasExperience: true,
+      hasEducation: true,
+      hasSkills: (analysis.presentSkills || []).length > 0,
+      hasProjects: true,
+      hasCertifications: true
     };
 
-    // ✅ FIX 4: Create comprehensive ATS record
+    // ✅ Create comprehensive ATS record
     const atsRecord = await ATSAnalysis.create({
       user: req.user._id,
       resumeText,
       jobDescription,
       fileName: fileName || 'resume.pdf',
-      scores: analysis.scores || { overall: 0, skillMatch: 0, experienceMatch: 0 },
+      scores: analysis.scores || { overall: 0, jobMatch: 0, ats: 0 },
       analysis: {
         structuredData: structuredResume,
         matchedKeywords: analysis.matchedKeywords || [],
         missingKeywords: analysis.missingKeywords || [],
-        presentSkills: analysis.presentSkills || structuredResume.skills.technical,
+        presentSkills: analysis.presentSkills || [],
         missingSkills: analysis.missingSkills || [],
         suggestions: analysis.suggestions || [],
-        rewrittenSummary: analysis.rewrittenSummary || structuredResume.summary,
+        rewrittenSummary: analysis.rewrittenSummary || '',
         strengths: analysis.strengths || [],
-        weaknesses: analysis.weaknesses || []
+        weaknesses: analysis.weaknesses || [],
+        matchedAreas: analysis.matchedAreas || [],
+        gapAreas: analysis.gapAreas || [],
+        semanticMatch: analysis.semanticMatch || {},
+        jdRequirements: analysis.jdRequirements || {},
+        analysisMethod: analysis.analysisMethod || 'semantic_langchain'
       },
       sections
     });
@@ -157,17 +147,24 @@ router.post('/analyze', protect, async (req, res) => {
       $inc: { 'stats.totalResumesAnalyzed': 1 }
     });
 
+    console.log('✅ Analysis complete and saved');
+
     res.json({
       analysisId: atsRecord._id,
       scores: analysis.scores,
       analysis: atsRecord.analysis,
       sections,
-      structuredResume
+      matchedKeywords: analysis.matchedKeywords,
+      missingKeywords: analysis.missingKeywords,
+      semanticMatch: analysis.semanticMatch,
+      jdRequirements: analysis.jdRequirements,
+      analysisMethod: analysis.analysisMethod
     });
   } catch (error) {
-    console.error('Resume analysis error:', error);
+    console.error('Resume analysis error:', error.message);
     res.status(500).json({ 
-      error: error.message || 'Failed to analyze resume' 
+      error: error.message || 'Failed to analyze resume',
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 });
