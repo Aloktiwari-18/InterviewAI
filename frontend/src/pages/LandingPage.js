@@ -11,32 +11,32 @@ import Navbar from '../components/shared/Navbar';
 const features = [
   {
     icon: <Mic size={24} />, title: 'AI Mock Interviews',
-    desc: 'Practice with our Llama 3.1 powered AI that asks real questions, listens to your answers, and gives instant feedback.',
+    desc: 'Practice interviews with AI powered by Llama 3.1. Get real-time feedback on your answers, tone, and technical accuracy.',
     color: '#6366f1'
   },
   {
-    icon: <FileText size={24} />, title: 'ATS Resume Scanner',
-    desc: 'Instantly analyze your resume against any job description. Get your ATS score and missing keywords.',
+    icon: <FileText size={24} />, title: 'ATS Resume Analysis',
+    desc: 'Check your resume against job descriptions. See your ATS score and identify missing keywords that matter.',
     color: '#0ea5e9'
   },
   {
-    icon: <BarChart2 size={24} />, title: 'Detailed Analytics',
-    desc: 'Track communication, technical depth, confidence, and relevance across every interview session.',
+    icon: <BarChart2 size={24} />, title: 'Performance Insights',
+    desc: 'Get detailed scores on communication, confidence, and technical knowledge. Track improvement over time.',
     color: '#10b981'
   },
   {
-    icon: <Brain size={24} />, title: 'Smart Feedback',
-    desc: 'Receive actionable improvement suggestions with sample answers tailored to your specific responses.',
+    icon: <Brain size={24} />, title: 'AI Feedback',
+    desc: 'Receive specific suggestions to improve weak areas. Get sample answers and tips for better responses.',
     color: '#f59e0b'
   },
   {
     icon: <Target size={24} />, title: 'Job Matching',
-    desc: 'Match your resume to job descriptions with AI-powered gap analysis and skill recommendations.',
+    desc: 'See which skills you need to learn for your target role. Get gap analysis based on real job descriptions.',
     color: '#ec4899'
   },
   {
-    icon: <Shield size={24} />, title: 'Private & Secure',
-    desc: 'Your data is encrypted and never shared. Practice freely with complete peace of mind.',
+    icon: <Shield size={24} />, title: 'Secure & Private',
+    desc: 'Your data is encrypted. We never sell your information or share it with anyone. Your privacy matters.',
     color: '#8b5cf6'
   },
 ];
@@ -278,9 +278,9 @@ export default function LandingPage() {
               <div className="mb-3 text-indigo-400">
                 <Mic size={20} />
               </div>
-              <h3 className="font-semibold mb-2">Real Interview Simulation</h3>
+              <h3 className="font-semibold mb-2">Practice Like It's Real</h3>
               <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-                Simulates actual interview scenarios with role-based questions and AI evaluation.
+                Voice + video interviews with AI asking real technical and behavioral questions.
               </p>
             </motion.div>
           </FadeIn>
@@ -290,9 +290,9 @@ export default function LandingPage() {
               <div className="mb-3 text-blue-400">
                 <BarChart2 size={20} />
               </div>
-              <h3 className="font-semibold mb-2">Performance Tracking</h3>
+              <h3 className="font-semibold mb-2">See Your Progress</h3>
               <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-                Tracks communication, confidence, and technical understanding across sessions.
+                Track scores, watch recordings, and see exactly where you're improving.
               </p>
             </motion.div>
           </FadeIn>
@@ -302,9 +302,9 @@ export default function LandingPage() {
               <div className="mb-3 text-green-400">
                 <Brain size={20} />
               </div>
-              <h3 className="font-semibold mb-2">Focused Improvement</h3>
+              <h3 className="font-semibold mb-2">Get Better Answers</h3>
               <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-                Provides actionable feedback to improve weak areas step by step.
+                AI gives you honest feedback and sample answers to help you improve.
               </p>
             </motion.div>
           </FadeIn>
@@ -318,21 +318,21 @@ export default function LandingPage() {
           style={{ background: 'radial-gradient(ellipse at center, var(--accent) 0%, transparent 70%)' }} />
         <FadeIn className="relative z-10 max-w-3xl mx-auto px-4 text-center">
           <h2 className="font-display text-4xl sm:text-5xl font-bold mb-6" style={{ color: 'var(--text-primary)' }}>
-            Ready to ace your next interview?
+            Get better at interviews
           </h2>
           <p className="text-lg mb-10" style={{ color: 'var(--text-secondary)' }}>
-            Join thousands of candidates who are improving their interview skills with InterviewAI.
+            Practice with AI, get real feedback, improve your skills. Start free today.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link to="/register" className="btn-primary flex items-center justify-center gap-2 text-base px-10 py-4">
-              Start Free Today <ArrowRight size={18} />
+              Start Free <ArrowRight size={18} />
             </Link>
             <Link to="/login" className="btn-secondary flex items-center justify-center gap-2 text-base px-10 py-4">
               Sign In
             </Link>
           </div>
           <p className="text-sm mt-6" style={{ color: 'var(--text-secondary)' }}>
-            No credit card required · Free forever plan · Cancel anytime
+            No credit card needed · Free plan available · 3 free interviews to start
           </p>
         </FadeIn>
       </section>
