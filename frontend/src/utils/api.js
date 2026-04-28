@@ -1,11 +1,11 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: process.env.REACT_APP_API_URL, // make sure .env me set ho
+  baseURL: process.env.REACT_APP_API_URL,
   timeout: 60000,
 });
 
-// 🔐 REQUEST INTERCEPTOR
+// ✅ FIX 1: REQUEST INTERCEPTOR - Add token & handle errors
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
@@ -19,33 +19,70 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// 🚨 RESPONSE INTERCEPTOR (FIXED)
+// ✅ FIX 2: RESPONSE INTERCEPTOR - Handle token refresh & errors
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
-    // 🔒 Unauthorized handling
-    if (error.response?.status === 401) {
+  async (error) => {
+    const originalRequest = error.config;
+
+    // ✅ Handle 401 Unauthorized (token expired or invalid)
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      originalRequest._retry = true;
+
+      try {
+        const refreshToken = localStorage.getItem('refreshToken');
+        
+        if (refreshToken) {
+          // Try to refresh the token
+          const { data } = await axios.post(
+            `${process.env.REACT_APP_API_URL}/api/auth/refresh`,
+            { refreshToken },
+            { timeout: 60000 }
+          );
+
+          // Store new tokens
+          localStorage.setItem('token', data.token);
+          if (data.refreshToken) {
+            localStorage.setItem('refreshToken', data.refreshToken);
+          }
+
+          // Retry original request with new token
+          originalRequest.headers.Authorization = `Bearer ${data.token}`;
+          return api(originalRequest);
+        }
+      } catch (refreshError) {
+        // Refresh failed - clear auth and redirect to login
+        localStorage.removeItem('token');
+        localStorage.removeItem('refreshToken');
+        window.location.href = '/login';
+        return Promise.reject(refreshError);
+      }
+
+      // No refresh token - redirect to login
       localStorage.removeItem('token');
+      localStorage.removeItem('refreshToken');
       window.location.href = '/login';
     }
 
-    // ✅ ALWAYS RETURN STRING MESSAGE
+    // ✅ Better error message extraction
     const message =
-      error.response?.data?.message ||   // backend standard
-      error.response?.data?.error ||     // fallback
-      error.message ||                   // axios error
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
       'Something went wrong';
 
-    return Promise.reject(message); // 🔥 IMPORTANT
+    return Promise.reject(message);
   }
 );
-
 
 // ================= AUTH =================
 export const authAPI = {
   login: (data) => api.post('/api/auth/login', data),
   register: (data) => api.post('/api/auth/register', data),
   me: () => api.get('/api/auth/me'),
+  logout: () => api.post('/api/auth/logout'),
+  refreshToken: (refreshToken) => 
+    api.post('/api/auth/refresh', { refreshToken }),
 };
 
 

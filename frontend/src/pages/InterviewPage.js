@@ -6,6 +6,7 @@ import {
   Clock, AlertCircle, CheckCircle, Loader, SkipForward, Send
 } from 'lucide-react';
 import DashboardLayout from '../components/shared/DashboardLayout';
+import { FaceDetectionMonitor } from '../components/Media/FaceDetectionMonitor';
 import { interviewAPI } from '../utils/api';
 import toast from 'react-hot-toast';
 
@@ -112,18 +113,151 @@ function InterviewSession({ interviewId, questions, onComplete }) {
     };
   }, []);
 
+  // ✅ TAB SWITCH DETECTION
+  useEffect(() => {
+    let tabSwitchCount = 0;
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        tabSwitchCount++;
+        console.log(`⚠️ TAB SWITCH DETECTED (${tabSwitchCount})`);
+        toast.error(`⚠️ Don't switch tabs! (Violation #${tabSwitchCount})`);
+        
+        // Log violation to backend
+        fetch(`${process.env.REACT_APP_API_URL}/api/interview/violation`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          },
+          body: JSON.stringify({
+            interviewId,
+            type: 'TAB_SWITCH',
+            severity: tabSwitchCount > 2 ? 'major' : 'warning',
+            timestamp: new Date()
+          })
+        }).catch(err => console.error('Violation log error:', err));
+      }
+    };
+
+    const handleWindowBlur = () => {
+      console.log('⚠️ WINDOW BLUR DETECTED');
+      toast.error('⚠️ Please return to interview window');
+      
+      fetch(`${process.env.REACT_APP_API_URL}/api/interview/violation`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({
+          interviewId,
+          type: 'WINDOW_BLUR',
+          severity: 'warning',
+          timestamp: new Date()
+        })
+      }).catch(err => console.error('Violation log error:', err));
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('blur', handleWindowBlur);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('blur', handleWindowBlur);
+    };
+  }, [interviewId]);
+
+  // ✅ FACE DETECTION VIOLATION HANDLER
+  const handleFaceDetectionViolation = useCallback((violation) => {
+    console.log(`⚠️ FACE VIOLATION: ${violation.type} - ${violation.message}`);
+    
+    // Determine toast type
+    const toastTypes = {
+      NO_FACE: '❌ Face not detected in camera',
+      MULTIPLE_FACES: `⚠️ ${violation.message}`
+    };
+
+    if (toastTypes[violation.type]) {
+      toast.error(toastTypes[violation.type]);
+    }
+
+    // Log to backend
+    fetch(`${process.env.REACT_APP_API_URL}/api/interview/violation`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
+      },
+      body: JSON.stringify({
+        interviewId,
+        type: violation.type,
+        severity: violation.severity || 'warning',
+        timestamp: new Date()
+      })
+    }).catch(err => console.error('Face violation log error:', err));
+  }, [interviewId]);
+
   // Per-question countdown
   useEffect(() => {
     setTimeLeft(120);
     clearInterval(questionTimerRef.current);
     questionTimerRef.current = setInterval(() => {
       setTimeLeft(t => {
-        if (t <= 1) { clearInterval(questionTimerRef.current); return 0; }
+        if (t <= 1) { 
+          clearInterval(questionTimerRef.current); 
+          return 0; 
+        }
         return t - 1;
       });
     }, 1000);
     return () => clearInterval(questionTimerRef.current);
   }, [currentQ]);
+
+  // ✅ AUTO-ADVANCE TO NEXT QUESTION WHEN TIME RUNS OUT
+  useEffect(() => {
+    if (timeLeft === 0 && !showSample) {
+      console.log('⏰ Time up! Auto-advancing to next question...');
+      toast('⏰ Time is up! Moving to next question...');
+      
+      // Auto-submit current answer if transcript exists
+      if (transcript.trim()) {
+        const answer = transcript || answers[currentQ] || '';
+        setSubmitting(true);
+        stopRecording();
+        
+        interviewAPI.submitAnswer(interviewId, {
+          questionIndex: currentQ, 
+          answer, 
+          duration: 120
+        })
+        .then(({ data }) => {
+          setAnswers(prev => ({ ...prev, [currentQ]: answer }));
+          setSampleAnswer(data.sampleAnswer);
+          setShowSample(true);
+          setSubmitting(false);
+        })
+        .catch(() => {
+          setShowSample(true); // Show sample anyway
+          setSubmitting(false);
+        });
+      } else {
+        // If no transcript, just move to next question after 2 seconds
+        setTimeout(() => {
+          nextQuestion();
+        }, 2000);
+      }
+    }
+  }, [timeLeft, showSample, transcript, currentQ]);
+
+  // ✅ AUTO-MOVE TO NEXT QUESTION AFTER SHOWING SAMPLE ANSWER
+  useEffect(() => {
+    if (showSample && timeLeft === 0) {
+      setTimeout(() => {
+        nextQuestion();
+      }, 3000); // Show sample for 3 seconds then move on
+    }
+  }, [showSample, timeLeft]);
 
   const speakQuestion = (text) => {
     if (!synthRef.current) return;
@@ -139,27 +273,109 @@ function InterviewSession({ interviewId, questions, onComplete }) {
     synthRef.current.speak(utter);
   };
 
-  const startRecording = () => {
+  const startRecording = async () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
       toast.error('Speech recognition not supported. Type your answer below.');
       return;
     }
+
+    // ✅ FIX 1: Request explicit audio permission
+    try {
+      const audioStream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          sampleRate: 16000
+        } 
+      });
+      audioStream.getTracks().forEach(track => track.stop()); // Stop immediately, just checking permission
+    } catch (err) {
+      toast.error('Microphone access denied. Please enable mic permissions in browser settings.');
+      return;
+    }
+
     synthRef.current?.cancel();
+    
+    // ✅ FIX 2: Create new recognition instance with FIXED config for accuracy
     const recognition = new SpeechRecognition();
     recognition.continuous = true;
     recognition.interimResults = true;
-    recognition.lang = 'en-US';
-    recognition.onresult = (e) => {
-      const text = Array.from(e.results).map(r => r[0].transcript).join(' ');
-      setTranscript(text);
+    recognition.lang = 'en-IN'; // Support Hindi/English mix
+    recognition.maxAlternatives = 1;
+    
+    let finalTranscript = ''; // Only FINALIZED speech
+    let interimText = ''; // Temporary interim display
+
+    recognition.onstart = () => {
+      finalTranscript = '';
+      interimText = '';
+      setTranscript('🎙 Listening...');
     };
-    recognition.onerror = (e) => {
-      if (e.error !== 'no-speech') toast.error('Mic error: ' + e.error);
+
+    recognition.onresult = (event) => {
+      interimText = ''; // Reset interim
+      
+      // ✅ ONLY process FINAL results - ignore interim
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const transcript = event.results[i][0].transcript;
+        
+        if (event.results[i].isFinal) {
+          // ✅ ONLY add final results with proper capitalization
+          finalTranscript += transcript.charAt(0).toUpperCase() + transcript.slice(1);
+          if (i < event.results.length - 1) {
+            finalTranscript += ' '; // Add space between final results
+          }
+        } else {
+          // ✅ Show interim as grayed out (don't let it change the final text)
+          interimText = transcript;
+        }
+      }
+      
+      // ✅ Display: FINAL TEXT (shown) + interim as hint
+      const displayText = finalTranscript 
+        ? finalTranscript + (interimText ? ` [${interimText}]` : '')
+        : (interimText ? `[${interimText}]` : '🎙 Listening...');
+      
+      setTranscript(displayText);
+      setAnswers(prev => ({ ...prev, [currentQ]: finalTranscript }));
     };
-    recognition.start();
-    recognitionRef.current = recognition;
-    setIsRecording(true);
+
+    recognition.onerror = (event) => {
+      console.error('Speech recognition error:', event.error);
+      
+      // ✅ Better error handling
+      const errorMessages = {
+        'network': '🌐 Network error. Check your internet connection.',
+        'no-speech': '🔇 No speech detected. Please try again.',
+        'audio-capture': '🎤 No microphone found. Check permissions.',
+        'not-allowed': '🔒 Microphone permission denied.',
+        'permission-denied': '🔒 Microphone permission denied.'
+      };
+      
+      if (event.error !== 'no-speech') {
+        toast.error(errorMessages[event.error] || `Mic error: ${event.error}`);
+      }
+    };
+
+    recognition.onend = () => {
+      setIsRecording(false);
+      // ✅ Keep final transcript visible (don't clear)
+      if (finalTranscript) {
+        setTranscript(finalTranscript);
+        setAnswers(prev => ({ ...prev, [currentQ]: finalTranscript }));
+      }
+    };
+
+    try {
+      recognition.start();
+      recognitionRef.current = recognition;
+      setIsRecording(true);
+    } catch (err) {
+      console.error('Recognition start error:', err);
+      toast.error('Failed to start recording. Please try again.');
+    }
   };
 
   const stopRecording = () => {
@@ -170,20 +386,128 @@ function InterviewSession({ interviewId, questions, onComplete }) {
   const toggleCamera = async () => {
     if (cameraOn) {
       stopCamera();
-    } else {
+      return;
+    }
+
+    try {
+      // ✅ FIX 1: Better video constraints for cross-browser compatibility
+      const constraints = {
+        video: {
+          width: { ideal: 1280, min: 320 },
+          height: { ideal: 720, min: 240 },
+          facingMode: 'user'
+        },
+        audio: false  // Separate audio/video to avoid conflicts
+      };
+
+      let stream = null;
+      
+      // ✅ FIX 2: Try with ideal constraints first, fallback to minimal
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-        streamRef.current = stream;
-        if (videoRef.current) videoRef.current.srcObject = stream;
-        setCameraOn(true);
-      } catch {
-        toast.error('Camera access denied');
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+      } catch (err) {
+        console.warn('High resolution failed, trying basic video:', err);
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'user' },
+          audio: false
+        });
+      }
+      
+      streamRef.current = stream;
+      
+      // ✅ FIX 3: Proper srcObject assignment with retry logic
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.muted = true;
+        videoRef.current.playsinline = true;
+        
+        // ✅ FIX 4: Handle video element events with timeout
+        const playTimeout = setTimeout(() => {
+          if (videoRef.current && videoRef.current.readyState >= 2) {
+            videoRef.current.play().catch(err => {
+              console.error('Video play error:', err);
+              toast.error('Failed to start video playback');
+              stopCamera();
+            });
+          }
+        }, 100);
+
+        videoRef.current.onloadedmetadata = () => {
+          clearTimeout(playTimeout);
+          if (videoRef.current) {
+            videoRef.current.play().catch(err => {
+              console.error('Video play error:', err);
+            });
+          }
+        };
+
+        videoRef.current.onplay = () => {
+          console.log('✅ Video playing');
+        };
+
+        videoRef.current.onerror = () => {
+          console.error('Video element error');
+          toast.error('Video stream error');
+          stopCamera();
+        };
+      }
+
+      setCameraOn(true);
+      toast.success('📹 Camera enabled');
+      
+    } catch (err) {
+      console.error('Camera error:', err);
+      
+      // ✅ FIX 5: Specific error handling
+      const errorMessages = {
+        'NotAllowedError': '🔒 Camera permission denied. Enable in browser settings.',
+        'NotFoundError': '📷 No camera device found. Check if camera is connected.',
+        'NotReadableError': '⚠️ Camera is already in use by another application.',
+        'OverconstrainedError': '⚙️ Camera does not support requested quality. Using default settings.',
+        'TypeError': '🌐 getUserMedia not supported. Use HTTPS or localhost.',
+        'SecurityError': '🔐 Camera access requires HTTPS (except on localhost)'
+      };
+
+      const message = errorMessages[err.name] || `Camera error: ${err.message}`;
+      toast.error(message);
+      
+      // ✅ FIX 6: Fallback - retry with relaxed constraints
+      if (err.name === 'OverconstrainedError') {
+        try {
+          console.log('Retrying with basic video constraints...');
+          const fallbackStream = await navigator.mediaDevices.getUserMedia({ 
+            video: true, 
+            audio: false 
+          });
+          streamRef.current = fallbackStream;
+          if (videoRef.current) {
+            videoRef.current.srcObject = fallbackStream;
+            videoRef.current.muted = true;
+            videoRef.current.play().catch(() => {});
+          }
+          setCameraOn(true);
+          toast.success('📹 Camera enabled (standard mode)');
+        } catch (fallbackErr) {
+          console.error('Fallback also failed:', fallbackErr);
+          toast.error('Camera unavailable');
+          setCameraOn(false);
+        }
       }
     }
   };
 
   const stopCamera = () => {
-    streamRef.current?.getTracks().forEach(t => t.stop());
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => {
+        track.stop();
+      });
+      streamRef.current = null;
+    }
+    
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    
     setCameraOn(false);
   };
 
@@ -285,11 +609,23 @@ function InterviewSession({ interviewId, questions, onComplete }) {
                   animate={{ width: `${(timeLeft / 120) * 100}%` }}
                   style={{ background: timeLeft < 30 ? '#ef4444' : undefined }} />
               </div>
-              <span className={`font-mono text-sm ${timeLeft < 30 ? 'text-red-400' : ''}`}
+              <span className={`font-mono text-sm font-semibold ${timeLeft < 30 ? 'animate-pulse' : ''}`}
                 style={{ color: timeLeft < 30 ? '#ef4444' : 'var(--text-secondary)' }}>
                 {formatTime(timeLeft)}
               </span>
             </div>
+
+            {/* Time warning */}
+            {timeLeft < 30 && timeLeft > 0 && (
+              <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
+                className="mb-4 p-3 rounded-lg flex items-center gap-2"
+                style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
+                <AlertCircle size={16} style={{ color: '#ef4444' }} />
+                <span style={{ color: '#ef4444', fontSize: '0.875rem', fontWeight: 600 }}>
+                  ⏰ {timeLeft} seconds remaining - Submit or Skip!
+                </span>
+              </motion.div>
+            )}
 
             {/* Answer area */}
             <div>
@@ -360,26 +696,27 @@ function InterviewSession({ interviewId, questions, onComplete }) {
           </div>
         </div>
 
-        {/* RIGHT - Camera */}
+        {/* RIGHT - Camera with Face Detection */}
         <div className="w-full lg:w-80 xl:w-96 p-4 lg:p-6 flex flex-col gap-4 border-t lg:border-t-0 lg:border-l"
           style={{ borderColor: 'var(--border)' }}>
-          <div className="rounded-2xl overflow-hidden aspect-video flex items-center justify-center relative"
-            style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)' }}>
-            {cameraOn ? (
-              <video ref={videoRef} autoPlay muted playsInline className="w-full h-full object-cover" />
-            ) : (
+          
+          {/* Face Detection Monitor */}
+          {cameraOn && (
+            <div className="rounded-2xl overflow-hidden">
+              <FaceDetectionMonitor onViolation={handleFaceDetectionViolation} />
+            </div>
+          )}
+
+          {/* Basic camera fallback */}
+          {!cameraOn && (
+            <div className="rounded-2xl overflow-hidden aspect-video flex items-center justify-center relative"
+              style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)' }}>
               <div className="text-center">
                 <VideoOff size={32} className="mx-auto mb-2 opacity-30" style={{ color: 'var(--text-secondary)' }} />
                 <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Camera off</p>
               </div>
-            )}
-            {isRecording && (
-              <div className="absolute top-2 left-2 flex items-center gap-1 px-2 py-1 rounded-lg text-xs"
-                style={{ background: 'rgba(239,68,68,0.9)', color: 'white' }}>
-                <div className="recording-dot" style={{ width: 6, height: 6 }} /> REC
-              </div>
-            )}
-          </div>
+            </div>
+          )}
 
           <button onClick={toggleCamera}
             className="btn-secondary flex items-center justify-center gap-2 text-sm">

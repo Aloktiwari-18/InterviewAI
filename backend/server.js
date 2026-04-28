@@ -38,7 +38,9 @@ app.use('/api/', limiter);
 const corsOptions = {
   origin: [
     "http://localhost:3000",
-    "https://interview-ai-one-sepia.vercel.app"
+    "http://localhost:5000",
+    "https://interview-ai-one-sepia.vercel.app",
+    "https://interviewai-1-xfn8.onrender.com"
   ],
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
@@ -50,9 +52,15 @@ app.use(cors(corsOptions));
 // ✅ Preflight fix
 app.options("*", cors(corsOptions));
 
-// ✅ Extra safety (Render fix)
+// ✅ Dynamic CORS headers (use origin from corsOptions)
 app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", "https://interview-ai-one-sepia.vercel.app");
+  const origin = req.get('origin');
+  const allowedOrigins = corsOptions.origin;
+  
+  if (allowedOrigins.includes(origin)) {
+    res.header("Access-Control-Allow-Origin", origin);
+  }
+  
   res.header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
   res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
   res.header("Access-Control-Allow-Credentials", "true");

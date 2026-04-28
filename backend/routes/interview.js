@@ -173,6 +173,38 @@ router.post('/complete/:id', protect, async (req, res) => {
       interview.jobTitle
     );
 
+    // ✅ COUNT VIOLATIONS AND APPLY SCORE REDUCTION
+    let violationCount = 0;
+    let violationPenalty = 0;
+
+    if (interview.violations && interview.violations.length > 0) {
+      violationCount = interview.violations.length;
+      
+      // Count by severity
+      const tabSwitches = interview.violations.filter(v => v.type === 'TAB_SWITCH').length;
+      const windowBlurs = interview.violations.filter(v => v.type === 'WINDOW_BLUR').length;
+      const criticalViolations = interview.violations.filter(v => v.severity === 'critical' || v.severity === 'major').length;
+
+      // Calculate penalty: 2% per tab switch, 1% per blur, 5% per critical
+      violationPenalty = (tabSwitches * 2) + (windowBlurs * 1) + (criticalViolations * 5);
+      violationPenalty = Math.min(violationPenalty, 40); // Max 40% deduction
+
+      console.log(`📊 Violations: ${violationCount} total, Penalty: ${violationPenalty}%`);
+    }
+
+    // Apply penalty to all scores
+    if (violationPenalty > 0) {
+      evaluation.scores.overall = Math.max(0, evaluation.scores.overall - violationPenalty);
+      evaluation.scores.confidence = Math.max(0, evaluation.scores.confidence - (violationPenalty * 0.5));
+      
+      if (evaluation.feedback) {
+        evaluation.feedback.weaknesses = evaluation.feedback.weaknesses || [];
+        evaluation.feedback.weaknesses.push(
+          `${violationCount} integrity violations detected during interview (${violationPenalty}% score reduction)`
+        );
+      }
+    }
+
     interview.scores = evaluation.scores;
     interview.feedback = evaluation.feedback;
     interview.status = 'completed';
@@ -199,7 +231,12 @@ router.post('/complete/:id', protect, async (req, res) => {
       message: 'Interview completed',
       scores: interview.scores,
       feedback: interview.feedback,
-      answers: interview.answers
+      answers: interview.answers,
+      violations: {
+        count: violationCount,
+        penalty: violationPenalty,
+        details: interview.violations
+      }
     });
 
   } catch (error) {
@@ -252,6 +289,58 @@ router.get('/:id', protect, async (req, res) => {
     console.error("❌ GET ERROR:", error);
     res.status(500).json({
       message: error.message || 'Failed to fetch interview'
+    });
+  }
+});
+
+// ============================
+// ⚠️ LOG VIOLATION
+// ============================
+router.post('/violation', protect, async (req, res) => {
+  try {
+    const { interviewId, type, severity, timestamp } = req.body;
+
+    if (!interviewId || !type) {
+      return res.status(400).json({ message: 'Interview ID and violation type required' });
+    }
+
+    // Find interview
+    const interview = await Interview.findOne({
+      _id: interviewId,
+      user: req.user._id
+    });
+
+    if (!interview) {
+      return res.status(404).json({ message: 'Interview not found' });
+    }
+
+    // Initialize violations array if not exists
+    if (!interview.violations) {
+      interview.violations = [];
+    }
+
+    // Add violation
+    interview.violations.push({
+      type,
+      severity: severity || 'warning',
+      timestamp: timestamp || new Date(),
+      logged: true
+    });
+
+    await interview.save();
+
+    console.log(`⚠️ Violation logged: ${type} for interview ${interviewId}`);
+
+    res.json({ 
+      success: true,
+      violationCount: interview.violations.length,
+      message: `${type} violation recorded`
+    });
+
+  } catch (error) {
+    console.error("❌ VIOLATION LOG ERROR:", error);
+    res.status(500).json({
+      message: error.message || 'Failed to log violation'
     });
   }
 });

@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 
+// ✅ FIX 1: Better token verification with error handling
 const protect = async (req, res, next) => {
   let token;
 
@@ -9,7 +10,10 @@ const protect = async (req, res, next) => {
   }
 
   if (!token) {
-    return res.status(401).json({ error: 'Not authorized, no token provided' });
+    return res.status(401).json({ 
+      error: 'Not authorized - no token provided',
+      code: 'NO_TOKEN'
+    });
   }
 
   try {
@@ -17,12 +21,35 @@ const protect = async (req, res, next) => {
     req.user = await User.findById(decoded.id).select('-password');
     
     if (!req.user) {
-      return res.status(401).json({ error: 'User not found' });
+      return res.status(401).json({ 
+        error: 'User not found',
+        code: 'USER_NOT_FOUND'
+      });
     }
     
+    req.userId = decoded.id;
     next();
   } catch (error) {
-    return res.status(401).json({ error: 'Not authorized, invalid token' });
+    // ✅ FIX 2: Distinguish between different JWT errors
+    if (error.name === 'TokenExpiredError') {
+      return res.status(401).json({ 
+        error: 'Token expired. Please login again.',
+        code: 'TOKEN_EXPIRED',
+        expiredAt: error.expiredAt
+      });
+    }
+    
+    if (error.name === 'JsonWebTokenError') {
+      return res.status(401).json({ 
+        error: 'Invalid token',
+        code: 'INVALID_TOKEN'
+      });
+    }
+    
+    return res.status(401).json({ 
+      error: 'Not authorized',
+      code: 'UNAUTHORIZED'
+    });
   }
 };
 

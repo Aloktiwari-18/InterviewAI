@@ -5,7 +5,7 @@ const fs = require('fs');
 const { protect } = require('../middleware/auth');
 const ATSAnalysis = require('../models/ATSAnalysis');
 const User = require('../models/User');
-const { analyzeResume } = require('../services/aiService');
+const { analyzeResumeAI, parseResumeStructured } = require('../services/aiService');
 
 const router = express.Router();
 
@@ -54,11 +54,34 @@ async function extractTextFromFile(filePath, mimeType) {
       return data.text;
     }
     
-    // For .doc/.docx - return placeholder (would need mammoth/docx2txt in production)
-    return 'Resume text extraction: Please install additional libraries for DOC/DOCX support. Add mammoth package and implement extraction.';
+    // ✅ FIX: Support DOCX files
+    if (ext === '.docx') {
+      try {
+        const mammoth = require('mammoth');
+        const result = await mammoth.extractRawText({ path: filePath });
+        return result.value;
+      } catch (mammothErr) {
+        console.warn('Mammoth extraction failed, trying docx package:', mammothErr.message);
+        const docx = require('docx-parser');
+        return await docx.parseAsync(filePath);
+      }
+    }
+    
+    // ✅ FIX: Support DOC files (legacy)
+    if (ext === '.doc') {
+      try {
+        const docx = require('docx-parser');
+        return await docx.parseAsync(filePath);
+      } catch (docxErr) {
+        console.error('DOC extraction error:', docxErr.message);
+        return 'Resume extraction: .DOC files are legacy. Please convert to PDF or DOCX.';
+      }
+    }
+    
+    return 'Unsupported file format';
   } catch (error) {
     console.error('Text extraction error:', error);
-    return '';
+    throw error;
   }
 }
 
@@ -86,48 +109,67 @@ router.post('/analyze', protect, async (req, res) => {
     return res.status(400).json({ error: 'Resume text is required' });
   }
 
-  const analysis = await analyzeResume(resumeText, jobDescription);
+  try {
+    // ✅ FIX 1: Use structured analysis from AI service
+    const structuredResume = await parseResumeStructured(resumeText);
+    
+    // ✅ FIX 2: Get detailed AI analysis
+    const analysis = await analyzeResumeAI(resumeText, jobDescription);
 
-  // Detect sections
-  const sections = {
-    hasContact: /email|phone|linkedin|github/i.test(resumeText),
-    hasSummary: /summary|objective|profile|about/i.test(resumeText),
-    hasExperience: /experience|work|employment|position/i.test(resumeText),
-    hasEducation: /education|degree|university|college/i.test(resumeText),
-    hasSkills: /skills|technologies|tools|competencies/i.test(resumeText),
-    hasProjects: /project|portfolio|built|developed/i.test(resumeText)
-  };
+    // ✅ FIX 3: Improved section detection with structured data
+    const sections = {
+      hasContact: !!(
+        structuredResume.personalInfo.email || 
+        structuredResume.personalInfo.phone ||
+        structuredResume.personalInfo.linkedin
+      ),
+      hasSummary: !!(structuredResume.summary && structuredResume.summary.trim().length > 0),
+      hasExperience: structuredResume.experience.length > 0,
+      hasEducation: structuredResume.education.length > 0,
+      hasSkills: Object.values(structuredResume.skills).some(arr => arr.length > 0),
+      hasProjects: structuredResume.projects.length > 0,
+      hasCertifications: structuredResume.certifications.length > 0
+    };
 
-  const atsRecord = await ATSAnalysis.create({
-    user: req.user._id,
-    resumeText,
-    jobDescription,
-    fileName: fileName || 'resume.pdf',
-    scores: analysis.scores,
-    analysis: {
-      matchedKeywords: analysis.matchedKeywords || [],
-      missingKeywords: analysis.missingKeywords || [],
-      presentSkills: analysis.presentSkills || [],
-      missingSkills: analysis.missingSkills || [],
-      suggestions: analysis.suggestions || [],
-      rewrittenSummary: analysis.rewrittenSummary || '',
-      strengths: analysis.strengths || [],
-      weaknesses: analysis.weaknesses || []
-    },
-    sections
-  });
+    // ✅ FIX 4: Create comprehensive ATS record
+    const atsRecord = await ATSAnalysis.create({
+      user: req.user._id,
+      resumeText,
+      jobDescription,
+      fileName: fileName || 'resume.pdf',
+      scores: analysis.scores || { overall: 0, skillMatch: 0, experienceMatch: 0 },
+      analysis: {
+        structuredData: structuredResume,
+        matchedKeywords: analysis.matchedKeywords || [],
+        missingKeywords: analysis.missingKeywords || [],
+        presentSkills: analysis.presentSkills || structuredResume.skills.technical,
+        missingSkills: analysis.missingSkills || [],
+        suggestions: analysis.suggestions || [],
+        rewrittenSummary: analysis.rewrittenSummary || structuredResume.summary,
+        strengths: analysis.strengths || [],
+        weaknesses: analysis.weaknesses || []
+      },
+      sections
+    });
 
-  // Update user stats
-  await User.findByIdAndUpdate(req.user._id, {
-    $inc: { 'stats.totalResumesAnalyzed': 1 }
-  });
+    // Update user stats
+    await User.findByIdAndUpdate(req.user._id, {
+      $inc: { 'stats.totalResumesAnalyzed': 1 }
+    });
 
-  res.json({
-    analysisId: atsRecord._id,
-    scores: analysis.scores,
-    analysis: atsRecord.analysis,
-    sections
-  });
+    res.json({
+      analysisId: atsRecord._id,
+      scores: analysis.scores,
+      analysis: atsRecord.analysis,
+      sections,
+      structuredResume
+    });
+  } catch (error) {
+    console.error('Resume analysis error:', error);
+    res.status(500).json({ 
+      error: error.message || 'Failed to analyze resume' 
+    });
+  }
 });
 
 // GET /api/resume/history
