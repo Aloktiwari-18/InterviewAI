@@ -31,6 +31,11 @@ api.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config;
 
+    // ✅ Don't retry logout on 401 - just let it succeed silently
+    if (originalRequest?.url?.includes('/auth/logout')) {
+      return Promise.resolve({ data: { success: true } });
+    }
+
     // ✅ Handle 401 Unauthorized (token expired or invalid)
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;

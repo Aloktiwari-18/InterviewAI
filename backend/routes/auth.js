@@ -253,12 +253,14 @@ router.put('/profile', protect, [
   }
 });
 
-// ✅ NEW: POST /api/auth/logout - Client-side cleanup signal
-router.post('/logout', protect, async (req, res) => {
-  // Token invalidation can be implemented via token blacklist if needed
+// ✅ NEW: POST /api/auth/logout - No token required (client cleans up)
+router.post('/logout', (req, res) => {
+  // ✅ FIX: Don't require token validation for logout
+  // Client will clear localStorage themselves
+  // This endpoint just serves as an API signal point
   res.json({ 
     success: true,
-    message: 'Logged out successfully. Please clear localStorage on client.' 
+    message: 'Logged out successfully. Client should clear localStorage.' 
   });
 });
 
