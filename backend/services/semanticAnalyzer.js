@@ -1,7 +1,17 @@
 require('dotenv').config({ path: '../.env' });
 
 const OpenAI = require("openai");
-const sw = require('stopword');
+
+let stopwordList = [];
+try {
+  const sw = require('stopword');
+  stopwordList = Array.isArray(sw.eng) ? sw.eng : [];
+} catch (e) {
+  console.warn('⚠️ Stopword library not available, using fallback list');
+  stopwordList = ['a', 'an', 'and', 'are', 'as', 'at', 'be', 'been', 'but', 'by', 'for', 'from', 'has', 'have', 'he', 'her', 'his', 'how', 'i', 'if', 'in', 'into', 'is', 'it', 'its', 'me', 'my', 'not', 'of', 'on', 'or', 'out', 'she', 'so', 'than', 'that', 'the', 'their', 'them', 'then', 'there', 'these', 'they', 'this', 'those', 'to', 'too', 'under', 'until', 'up', 'very', 'was', 'were', 'what', 'when', 'where', 'which', 'while', 'who', 'why', 'with', 'you', 'your'];
+}
+
+const stopwordSet = new Set(stopwordList.map(w => w.toLowerCase()));
 
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -14,14 +24,14 @@ function removeStopwords(words) {
   if (typeof words === 'string') {
     words = words.split(/\s+/);
   }
-  return sw.removeStopwords(words, sw.eng).join(' ').trim();
+  return words.filter(word => !stopwordSet.has(word.toLowerCase())).join(' ').trim();
 }
 
 function filterStopwords(wordArray) {
   if (!Array.isArray(wordArray)) return [];
   return wordArray
     .filter(word => word && word.toString().length > 0)
-    .filter(word => !sw.eng.includes(word.toString().toLowerCase()))
+    .filter(word => !stopwordSet.has(word.toString().toLowerCase()))
     .map(word => word.toString().trim())
     .filter((word, idx, arr) => arr.indexOf(word) === idx); // Remove duplicates
 }
