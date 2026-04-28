@@ -49,10 +49,10 @@ const steps = [
 ];
 
 const stats = [
-  { val: '50K+', label: 'Interviews Practiced', icon: <Mic size={18} /> },
-  { val: '89%', label: 'Offer Rate Improvement', icon: <TrendingUp size={18} /> },
-  { val: '200+', label: 'Job Roles Covered', icon: <Award size={18} /> },
-  { val: '4.9★', label: 'User Rating', icon: <Star size={18} /> },
+  { val: '1000+', label: 'Interviews Conducted', icon: <Mic size={18} /> },
+  { val: '100+', label: 'Active Users', icon: <Users size={18} /> },
+  { val: '100+', label: 'Interview Types', icon: <Award size={18} /> },
+  { val: '4.6★', label: 'User Rating', icon: <Star size={18} /> },
 ];
 
 function FadeIn({ children, delay = 0, className = '' }) {
