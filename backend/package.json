@@ -28,7 +28,9 @@
     "openai": "^6.34.0",
     "pdf-parse": "^1.1.1",
     "uuid": "^9.0.1",
-    "js-tiktoken": "^1.0.8"
+    "js-tiktoken": "^1.0.8",
+    "stopword": "^2.0.8",
+    "natural": "^6.7.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.2"
