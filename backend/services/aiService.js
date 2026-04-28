@@ -302,8 +302,119 @@ function validateScores(scores) {
 }
 
 // ============================
-// 🎯 RESUME AI ANALYSIS (COMPLETE REWRITE)
+// 🎯 RESUME AI ANALYSIS (PRODUCTION LEVEL)
 // ============================
+
+// ✅ Filter out common stop words & filler words
+const STOP_WORDS = new Set([
+  'with', 'and', 'or', 'the', 'a', 'an', 'in', 'on', 'at', 'to', 'for', 'of', 'by', 'from',
+  'as', 'is', 'are', 'am', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did',
+  'will', 'would', 'can', 'could', 'should', 'may', 'might', 'must', 'shall', 'this', 'that',
+  'these', 'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they', 'my', 'your', 'his', 'her',
+  'its', 'our', 'their', 'which', 'who', 'whom', 'what', 'when', 'where', 'why', 'how',
+  'required', 'preferred', 'ability', 'skills', 'experience', 'knowledge', 'understanding',
+  'good', 'strong', 'excellent', 'proficiency', 'familiarity', 'working', 'worked', 'works'
+]);
+
+// ✅ Production keywords to extract from JD
+const TECH_SKILL_KEYWORDS = {
+  languages: ['java', 'python', 'javascript', 'typescript', 'c#', 'c++', 'go', 'rust', 'kotlin', 'swift', 'php', 'ruby', 'scala', 'r', 'matlab', 'perl', 'groovy', 'gradle'],
+  frameworks: ['spring', 'springboot', 'react', 'angular', 'vue', 'django', 'flask', 'fastapi', 'express', 'node.js', 'asp.net', 'laravel', 'rails', 'quarkus'],
+  databases: ['mysql', 'postgresql', 'mongodb', 'redis', 'oracle', 'sql server', 'dynamodb', 'cassandra', 'elasticsearch', 'neo4j', 'firebase', 'sqlite'],
+  apis: ['rest', 'restful', 'graphql', 'soap', 'grpc', 'websocket', 'api', 'rest api', 'web services', 'microservices'],
+  cloud: ['aws', 'azure', 'gcp', 'kubernetes', 'docker', 'docker compose', 'jenkins', 'gitlab', 'github', 'heroku', 'cloudflare'],
+  tools: ['git', 'github', 'gitlab', 'bitbucket', 'maven', 'gradle', 'npm', 'yarn', 'pip', 'junit', 'mockito', 'jira', 'confluence'],
+  methodologies: ['agile', 'scrum', 'kanban', 'waterfall', 'devops', 'ci/cd', 'tdd', 'bdd', 'oops', 'oop', 'solid', 'design patterns'],
+  databases_extended: ['sql', 'nosql', 'relational database', 'non-relational database', 'jdbc', 'hibernate', 'jpa', 'mybatis', 'orm']
+};
+
+// ✅ Smart keyword extraction from text
+function extractSkillsIntelligent(text, jobDescription = '') {
+  if (!text) return [];
+  
+  const lowerText = text.toLowerCase();
+  const allSkills = new Set();
+  
+  // Extract from JD first (higher priority)
+  if (jobDescription) {
+    const lowerJD = jobDescription.toLowerCase();
+    Object.values(TECH_SKILL_KEYWORDS).forEach(skills => {
+      skills.forEach(skill => {
+        if (lowerJD.includes(skill)) {
+          allSkills.add(skill);
+        }
+      });
+    });
+  }
+  
+  // Extract from resume
+  Object.values(TECH_SKILL_KEYWORDS).forEach(skills => {
+    skills.forEach(skill => {
+      if (lowerText.includes(skill)) {
+        allSkills.add(skill);
+      }
+    });
+  });
+  
+  return Array.from(allSkills);
+}
+
+// ✅ Extract ONLY important skills from JD
+async function extractJDRequiredSkills(jobDescription) {
+  const prompt = `
+You are a technical recruiter. Extract ONLY the core required technical skills from this job description.
+
+Return a JSON array with these categories:
+{
+  "mandatory": ["skill1", "skill2"],  // Must have
+  "preferred": ["skill3", "skill4"],  // Nice to have
+  "technical": ["skill5", "skill6"]   // All technical
+}
+
+JOB DESCRIPTION:
+${jobDescription || 'Software development role'}
+
+Return ONLY valid JSON, no other text.
+`;
+
+  try {
+    const response = await callAI(prompt, 600);
+    const jsonMatch = response.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      return {
+        mandatory: Array.isArray(parsed.mandatory) ? parsed.mandatory : [],
+        preferred: Array.isArray(parsed.preferred) ? parsed.preferred : [],
+        technical: Array.isArray(parsed.technical) ? parsed.technical : []
+      };
+    }
+  } catch (e) {
+    console.warn("JD skills extraction error:", e.message);
+  }
+  
+  return { mandatory: [], preferred: [], technical: [] };
+}
+
+// ✅ Intelligent matching algorithm
+function intelligentMatch(resumeSkills, jdSkills) {
+  const resumeLower = resumeSkills.map(s => s.toLowerCase());
+  const jdLower = jdSkills.map(s => s.toLowerCase());
+  
+  const matched = jdLower.filter(skill => {
+    return resumeLower.some(rSkill => {
+      // Exact match
+      if (rSkill === skill) return true;
+      // Substring match for longer skills
+      if (skill.includes(rSkill) || rSkill.includes(skill)) return true;
+      return false;
+    });
+  });
+  
+  const missing = jdLower.filter(skill => !matched.includes(skill));
+  
+  return { matched, missing };
+}
+
 async function analyzeResumeAI(resumeText, jobDescription) {
   try {
     if (!resumeText || resumeText.trim().length < 50) {
@@ -323,69 +434,64 @@ async function analyzeResumeAI(resumeText, jobDescription) {
 
     const structuredResume = await parseResumeStructured(resumeText);
 
-    // ✅ STEP 1: Extract keywords from job description
-    const extractKeywordsPrompt = `
-Extract ONLY technical keywords and required skills from this job description. Return a JSON array of keywords (max 15).
+    // ✅ STEP 1: Extract required skills from JD
+    const jdSkillsData = await extractJDRequiredSkills(jobDescription || '');
+    const allJDSkills = [
+      ...jdSkillsData.mandatory,
+      ...jdSkillsData.preferred,
+      ...jdSkillsData.technical
+    ].filter(s => s && s.length > 0 && !STOP_WORDS.has(s.toLowerCase()));
 
-JOB DESCRIPTION:
-${jobDescription || 'Software development role'}
+    // ✅ STEP 2: Extract skills from resume intelligently
+    const resumeSkills = [
+      ...extractSkillsIntelligent(resumeText, jobDescription),
+      ...(structuredResume.skills?.technical || []),
+      ...(structuredResume.skills?.tools || [])
+    ].filter(s => s && s.length > 0 && !STOP_WORDS.has(s.toLowerCase()));
 
-Return ONLY this format:
-["keyword1", "keyword2", "keyword3"]
-`;
+    // ✅ STEP 3: Match skills (smart comparison)
+    const { matched: matchedKeywords, missing: missingKeywords } = intelligentMatch(resumeSkills, allJDSkills);
 
-    const keywordsResponse = await callAI(extractKeywordsPrompt, 500);
-    let extractedKeywords = [];
-    try {
-      const keywordMatch = keywordsResponse.match(/\[[\s\S]*\]/);
-      if (keywordMatch) {
-        extractedKeywords = JSON.parse(keywordMatch[0]).filter(k => typeof k === 'string' && k.length > 0);
-      }
-    } catch (e) {
-      console.warn("Keyword extraction fallback:", e.message);
-      // Fallback: extract common tech keywords
-      extractedKeywords = ['React', 'JavaScript', 'Node.js', 'Python', 'SQL', 'AWS', 'Docker', 'Git', 'REST API', 'MongoDB'];
-    }
-
-    // ✅ STEP 2: Match keywords against resume
-    const resumeUpper = resumeText.toUpperCase();
-    const matchedKeywords = extractedKeywords.filter(keyword => {
-      return resumeUpper.includes(keyword.toUpperCase());
-    });
-    const missingKeywords = extractedKeywords.filter(keyword => {
-      return !resumeUpper.includes(keyword.toUpperCase());
-    });
-
-    // ✅ STEP 3: Calculate keyword match score
-    const keywordMatchScore = extractedKeywords.length > 0 
-      ? Math.round((matchedKeywords.length / extractedKeywords.length) * 100)
+    // ✅ STEP 4: Calculate scores
+    const keywordMatchScore = allJDSkills.length > 0 
+      ? Math.round((matchedKeywords.length / allJDSkills.length) * 100)
       : 50;
 
-    // ✅ STEP 4: Get comprehensive AI analysis
+    // ✅ STEP 5: Get comprehensive AI analysis
     const analysisPrompt = `
-You are an expert ATS and resume reviewer. Analyze this resume comprehensively.
+You are an expert ATS and technical recruiter. Analyze this resume comprehensively against job requirements.
 
-RESUME:
+RESUME (first 2000 chars):
 ${resumeText.substring(0, 2000)}
 
-STRUCTED DATA:
-- Skills: ${structuredResume.skills?.technical?.join(', ') || 'None found'}
+JD REQUIRED SKILLS:
+- Mandatory: ${jdSkillsData.mandatory.join(', ') || 'None specified'}
+- Preferred: ${jdSkillsData.preferred.join(', ') || 'None specified'}
+
+CANDIDATE SKILLS FOUND:
+${resumeSkills.slice(0, 15).join(', ') || 'Basic skills detected'}
+
+MATCH ANALYSIS:
+- Matched: ${matchedKeywords.slice(0, 10).join(', ') || 'None'}
+- Missing: ${missingKeywords.slice(0, 10).join(', ') || 'All covered'}
+
+RESUME STRUCTURE:
 - Experience: ${structuredResume.experience?.length || 0} positions
 - Education: ${structuredResume.education?.length || 0} degrees
-- Contact: ${structuredResume.personalInfo?.email ? 'Yes' : 'No'}
+- Projects: ${structuredResume.projects?.length || 0}
+- Contact info: ${structuredResume.personalInfo?.email ? 'Yes' : 'No'}
 
-MATCHED KEYWORDS: ${matchedKeywords.slice(0, 8).join(', ') || 'None'}
-MISSING KEYWORDS: ${missingKeywords.slice(0, 8).join(', ') || 'All present'}
+Provide honest scores and actionable feedback.
 
-Return ONLY valid JSON:
+Return ONLY valid JSON (no markdown):
 {
   "atsScore": <0-100>,
   "jobMatchScore": <0-100>,
   "formattingScore": <0-100>,
-  "strengths": ["item1", "item2"],
-  "weaknesses": ["item1", "item2"],
-  "suggestions": ["improvement1", "improvement2"],
-  "rewrittenSummary": "Professional 2-3 sentence summary"
+  "strengths": ["strength1", "strength2", "strength3"],
+  "weaknesses": ["weakness1", "weakness2", "weakness3"],
+  "suggestions": ["Fix 1", "Fix 2", "Fix 3"],
+  "rewrittenSummary": "Professional 2-3 sentence summary focused on JD requirements"
 }
 `;
 
@@ -402,7 +508,7 @@ Return ONLY valid JSON:
       analysis = {};
     }
 
-    // ✅ STEP 5: Calculate final scores
+    // ✅ STEP 6: Calculate final scores
     const atsScore = Math.max(0, Math.min(100, parseInt(analysis.atsScore) || 65));
     const jobMatchScore = Math.max(0, Math.min(100, parseInt(analysis.jobMatchScore) || 70));
     const formattingScore = Math.max(0, Math.min(100, parseInt(analysis.formattingScore) || 75));
@@ -411,9 +517,11 @@ Return ONLY valid JSON:
     console.log(`📊 Resume Analysis:
       - ATS: ${atsScore}%
       - Job Match: ${jobMatchScore}%
-      - Keywords: ${keywordMatchScore}% (${matchedKeywords.length}/${extractedKeywords.length})
+      - Keywords: ${keywordMatchScore}% (${matchedKeywords.length}/${allJDSkills.length})
       - Formatting: ${formattingScore}%
-      - Overall: ${overallScore}%`);
+      - Overall: ${overallScore}%
+      - Matched Skills: ${matchedKeywords.join(', ')}
+      - Missing Skills: ${missingKeywords.join(', ')}`);
 
     return {
       scores: {
@@ -423,28 +531,28 @@ Return ONLY valid JSON:
         formatting: formattingScore,
         overall: overallScore
       },
-      matchedKeywords: matchedKeywords.slice(0, 10),
-      missingKeywords: missingKeywords.slice(0, 10),
-      presentSkills: structuredResume.skills?.technical?.slice(0, 15) || [],
-      missingSkills: missingKeywords.slice(0, 10),
+      matchedKeywords: matchedKeywords.slice(0, 15),
+      missingKeywords: missingKeywords.slice(0, 15),
+      presentSkills: resumeSkills.slice(0, 20),
+      missingSkills: missingKeywords.slice(0, 15),
       suggestions: Array.isArray(analysis.suggestions) ? analysis.suggestions.slice(0, 5) : [
-        "Add metrics to your achievements",
-        "Include relevant certifications",
-        "Use action verbs in job descriptions",
-        "Add keywords from job posting",
-        "Improve formatting and readability"
+        "Add more quantifiable achievements with metrics",
+        "Include all relevant certifications and technical skills",
+        "Use action verbs and technical terminology",
+        "Highlight projects matching job requirements",
+        "Ensure ATS-friendly formatting (avoid tables, images)"
       ],
       rewrittenSummary: typeof analysis.rewrittenSummary === 'string' 
         ? analysis.rewrittenSummary.substring(0, 300)
-        : "Results-driven professional with strong technical background. Seeking challenging role to leverage expertise and drive impact.",
+        : "Results-driven professional with strong technical background. Proven expertise in key technologies. Seeking role to leverage skills and drive impact.",
       strengths: Array.isArray(analysis.strengths) ? analysis.strengths.slice(0, 5) : [
         "Clear career progression",
         "Relevant technical skills",
-        "Professional formatting"
+        "Professional structure"
       ],
       weaknesses: Array.isArray(analysis.weaknesses) ? analysis.weaknesses.slice(0, 5) : [
-        "Could add more quantifiable achievements",
-        "Some keywords from job description missing"
+        "Some key skills from JD missing",
+        "Could add more quantifiable metrics"
       ]
     };
 
