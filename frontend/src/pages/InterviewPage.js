@@ -124,18 +124,11 @@ function InterviewSession({ interviewId, questions, onComplete }) {
         toast.error(`⚠️ Don't switch tabs! (Violation #${tabSwitchCount})`);
         
         // Log violation to backend
-        fetch(`${process.env.REACT_APP_API_URL}/api/interview/violation`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('token')}`
-          },
-          body: JSON.stringify({
-            interviewId,
-            type: 'TAB_SWITCH',
-            severity: tabSwitchCount > 2 ? 'major' : 'warning',
-            timestamp: new Date()
-          })
+        interviewAPI.logViolation({
+          interviewId,
+          type: 'TAB_SWITCH',
+          severity: tabSwitchCount > 2 ? 'major' : 'warning',
+          timestamp: new Date()
         }).catch(err => console.error('Violation log error:', err));
       }
     };
@@ -144,18 +137,11 @@ function InterviewSession({ interviewId, questions, onComplete }) {
       console.log('⚠️ WINDOW BLUR DETECTED');
       toast.error('⚠️ Please return to interview window');
       
-      fetch(`${process.env.REACT_APP_API_URL}/api/interview/violation`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify({
-          interviewId,
-          type: 'WINDOW_BLUR',
-          severity: 'warning',
-          timestamp: new Date()
-        })
+      interviewAPI.logViolation({
+        interviewId,
+        type: 'WINDOW_BLUR',
+        severity: 'warning',
+        timestamp: new Date()
       }).catch(err => console.error('Violation log error:', err));
     };
 
@@ -183,18 +169,11 @@ function InterviewSession({ interviewId, questions, onComplete }) {
     }
 
     // Log to backend
-    fetch(`${process.env.REACT_APP_API_URL}/api/interview/violation`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('token')}`
-      },
-      body: JSON.stringify({
-        interviewId,
-        type: violation.type,
-        severity: violation.severity || 'warning',
-        timestamp: new Date()
-      })
+    interviewAPI.logViolation({
+      interviewId,
+      type: violation.type,
+      severity: violation.severity || 'warning',
+      timestamp: new Date()
     }).catch(err => console.error('Face violation log error:', err));
   }, [interviewId]);
 

@@ -1,7 +1,13 @@
 import axios from 'axios';
 
+// ✅ Normalize baseURL - remove trailing slash to prevent double slashes
+const normalizeURL = (url) => {
+  if (!url) return 'http://localhost:5000';
+  return url.endsWith('/') ? url.slice(0, -1) : url;
+};
+
 const api = axios.create({
-  baseURL: process.env.REACT_APP_API_URL,
+  baseURL: normalizeURL(process.env.REACT_APP_API_URL),
   timeout: 60000,
 });
 
@@ -35,7 +41,7 @@ api.interceptors.response.use(
         if (refreshToken) {
           // Try to refresh the token
           const { data } = await axios.post(
-            `${process.env.REACT_APP_API_URL}/api/auth/refresh`,
+            `${normalizeURL(process.env.REACT_APP_API_URL)}/api/auth/refresh`,
             { refreshToken },
             { timeout: 60000 }
           );
@@ -99,6 +105,9 @@ export const interviewAPI = {
 
   complete: (id) =>
     api.post(`/api/interview/complete/${id}`),
+
+  logViolation: (data) =>
+    api.post('/api/interview/violation', data),
 
   getHistory: () =>
     api.get('/api/interview/history'),
