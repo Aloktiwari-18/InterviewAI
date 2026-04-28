@@ -14,14 +14,14 @@ function removeStopwords(words) {
   if (typeof words === 'string') {
     words = words.split(/\s+/);
   }
-  return sw.removeStopwords(words, sw.en).join(' ').trim();
+  return sw.removeStopwords(words, sw.eng).join(' ').trim();
 }
 
 function filterStopwords(wordArray) {
   if (!Array.isArray(wordArray)) return [];
   return wordArray
     .filter(word => word && word.toString().length > 0)
-    .filter(word => !sw.en.includes(word.toString().toLowerCase()))
+    .filter(word => !sw.eng.includes(word.toString().toLowerCase()))
     .map(word => word.toString().trim())
     .filter((word, idx, arr) => arr.indexOf(word) === idx); // Remove duplicates
 }
@@ -63,12 +63,19 @@ CRITICAL: Only include concrete technical items. NO filler words like "and", "wi
 
     let content = response.choices[0].message.content.trim();
     
-    // Remove markdown if present
-    if (content.startsWith('```')) {
-      content = content.replace(/```json?\n?/g, '').replace(/```/g, '');
+    // Remove markdown code blocks more reliably
+    content = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    
+    // Extract JSON from content (find first { and last })
+    const jsonStart = content.indexOf('{');
+    const jsonEnd = content.lastIndexOf('}');
+    
+    if (jsonStart === -1 || jsonEnd === -1) {
+      throw new Error('No JSON object found in response');
     }
     
-    const parsed = JSON.parse(content);
+    const jsonStr = content.substring(jsonStart, jsonEnd + 1);
+    const parsed = JSON.parse(jsonStr);
     
     // Filter each array through stopwords
     const cleaned = {
@@ -83,6 +90,7 @@ CRITICAL: Only include concrete technical items. NO filler words like "and", "wi
     return cleaned;
   } catch (err) {
     console.error("❌ Resume parse error:", err.message);
+    console.error("Error details:", err);
     return {
       technicalSkills: [],
       frameworks: [],
@@ -150,11 +158,20 @@ CRITICAL: Only concrete technical skills. NO: and, with, or, required, ability, 
     });
 
     let jdContent = jdResponse.choices[0].message.content.trim();
-    if (jdContent.startsWith('```')) {
-      jdContent = jdContent.replace(/```json?\n?/g, '').replace(/```/g, '');
+    
+    // Remove markdown code blocks more reliably
+    jdContent = jdContent.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    
+    // Extract JSON from content
+    const jdJsonStart = jdContent.indexOf('{');
+    const jdJsonEnd = jdContent.lastIndexOf('}');
+    
+    if (jdJsonStart === -1 || jdJsonEnd === -1) {
+      throw new Error('No JSON object found in JD response');
     }
-
-    const jdParsed = JSON.parse(jdContent);
+    
+    const jdJsonStr = jdContent.substring(jdJsonStart, jdJsonEnd + 1);
+    const jdParsed = JSON.parse(jdJsonStr);
     
     // Filter JD skills
     const mustHave = filterStopwords(jdParsed.mustHaveSkills || []);
@@ -239,6 +256,7 @@ CRITICAL: Only concrete technical skills. NO: and, with, or, required, ability, 
 
   } catch (err) {
     console.error("❌ Analysis error:", err.message);
+    console.error("Full error:", err);
     throw err;
   }
 }
