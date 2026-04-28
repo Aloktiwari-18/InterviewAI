@@ -41,6 +41,11 @@ function filterStopwords(wordArray) {
 // ============================
 async function parseResumeStructured(resumeText) {
   try {
+    if (!process.env.OPENAI_API_KEY) {
+      console.error("❌ OPENAI_API_KEY not set!");
+      throw new Error('OpenAI API key not configured');
+    }
+
     const prompt = `Extract technical information from this resume. Return ONLY valid JSON (no markdown):
 
 Resume:
@@ -58,46 +63,61 @@ Return exactly this JSON:
 
 CRITICAL: Only include concrete technical items. NO filler words like "and", "with", "or", "required", "ability", "skills", "knowledge", "understanding".`;
 
-    const response = await client.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        { 
-          role: "system", 
-          content: "Extract only concrete technical skills. Return ONLY valid JSON. No markdown code blocks." 
-        },
-        { role: "user", content: prompt }
-      ],
-      max_tokens: 1000,
-      temperature: 0.2,
-    });
+    try {
+      const response = await client.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          { 
+            role: "system", 
+            content: "Extract only concrete technical skills. Return ONLY valid JSON. No markdown code blocks." 
+          },
+          { role: "user", content: prompt }
+        ],
+        max_tokens: 1000,
+        temperature: 0.2,
+      });
 
-    let content = response.choices[0].message.content.trim();
-    
-    // Remove markdown code blocks more reliably
-    content = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-    
-    // Extract JSON from content (find first { and last })
-    const jsonStart = content.indexOf('{');
-    const jsonEnd = content.lastIndexOf('}');
-    
-    if (jsonStart === -1 || jsonEnd === -1) {
-      throw new Error('No JSON object found in response');
+      if (!response.choices?.[0]?.message?.content) {
+        throw new Error('Empty response from OpenAI');
+      }
+
+      let content = response.choices[0].message.content.trim();
+      
+      // Remove markdown code blocks more reliably
+      content = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      
+      // Extract JSON from content (find first { and last })
+      const jsonStart = content.indexOf('{');
+      const jsonEnd = content.lastIndexOf('}');
+      
+      if (jsonStart === -1 || jsonEnd === -1) {
+        throw new Error('No JSON object found in response');
+      }
+      
+      const jsonStr = content.substring(jsonStart, jsonEnd + 1);
+      const parsed = JSON.parse(jsonStr);
+      
+      // Filter each array through stopwords
+      const cleaned = {
+        technicalSkills: filterStopwords(parsed.technicalSkills || []),
+        frameworks: filterStopwords(parsed.frameworks || []),
+        databases: filterStopwords(parsed.databases || []),
+        tools: filterStopwords(parsed.tools || []),
+        languages: filterStopwords(parsed.languages || []),
+        yearsOfExperience: parsed.yearsOfExperience || 0
+      };
+
+      return cleaned;
+    } catch (apiErr) {
+      console.error("❌ OpenAI API error:", apiErr.message);
+      if (apiErr.status === 401) {
+        throw new Error('OpenAI authentication failed - check API key');
+      }
+      if (apiErr.status === 429) {
+        throw new Error('OpenAI rate limit exceeded - try again later');
+      }
+      throw apiErr;
     }
-    
-    const jsonStr = content.substring(jsonStart, jsonEnd + 1);
-    const parsed = JSON.parse(jsonStr);
-    
-    // Filter each array through stopwords
-    const cleaned = {
-      technicalSkills: filterStopwords(parsed.technicalSkills || []),
-      frameworks: filterStopwords(parsed.frameworks || []),
-      databases: filterStopwords(parsed.databases || []),
-      tools: filterStopwords(parsed.tools || []),
-      languages: filterStopwords(parsed.languages || []),
-      yearsOfExperience: parsed.yearsOfExperience || 0
-    };
-
-    return cleaned;
   } catch (err) {
     console.error("❌ Resume parse error:", err.message);
     console.error("Error details:", err);
@@ -136,11 +156,28 @@ async function analyzeResumeWithSemanticMatching(resumeText, jobDescription) {
     console.log("🚀 Starting Production Semantic Analysis...");
 
     // ✅ STEP 1: Parse resume
-    const resumeParsed = await parseResumeStructured(resumeText);
+    let resumeParsed;
+    try {
+      resumeParsed = await parseResumeStructured(resumeText);
+    } catch (parseErr) {
+      console.error("⚠️ Resume parsing failed:", parseErr.message);
+      resumeParsed = {
+        technicalSkills: [],
+        frameworks: [],
+        databases: [],
+        tools: [],
+        languages: [],
+        yearsOfExperience: 0
+      };
+    }
 
     // ✅ STEP 2: Extract JD skills
     console.log("📋 Extracting JD requirements...");
-    const jdPrompt = `Extract technical skills from this job description. Return ONLY valid JSON:
+    let mustHave = [];
+    let niceToHave = [];
+    
+    try {
+      const jdPrompt = `Extract technical skills from this job description. Return ONLY valid JSON:
 
 Job Description:
 ${jobDescription || "Software development"}
@@ -154,38 +191,40 @@ Return exactly this JSON:
 
 CRITICAL: Only concrete technical skills. NO: and, with, or, required, ability, skills, knowledge, understanding, good, strong.`;
 
-    const jdResponse = await client.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        { 
-          role: "system", 
-          content: "Extract concrete technical skills only. Return ONLY valid JSON." 
-        },
-        { role: "user", content: jdPrompt }
-      ],
-      max_tokens: 1000,
-      temperature: 0.2,
-    });
+      const jdResponse = await client.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          { 
+            role: "system", 
+            content: "Extract concrete technical skills only. Return ONLY valid JSON." 
+          },
+          { role: "user", content: jdPrompt }
+        ],
+        max_tokens: 1000,
+        temperature: 0.2,
+      });
 
-    let jdContent = jdResponse.choices[0].message.content.trim();
-    
-    // Remove markdown code blocks more reliably
-    jdContent = jdContent.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-    
-    // Extract JSON from content
-    const jdJsonStart = jdContent.indexOf('{');
-    const jdJsonEnd = jdContent.lastIndexOf('}');
-    
-    if (jdJsonStart === -1 || jdJsonEnd === -1) {
-      throw new Error('No JSON object found in JD response');
+      let jdContent = jdResponse.choices[0].message.content.trim();
+      
+      // Remove markdown code blocks more reliably
+      jdContent = jdContent.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      
+      // Extract JSON from content
+      const jdJsonStart = jdContent.indexOf('{');
+      const jdJsonEnd = jdContent.lastIndexOf('}');
+      
+      if (jdJsonStart !== -1 && jdJsonEnd !== -1) {
+        const jdJsonStr = jdContent.substring(jdJsonStart, jdJsonEnd + 1);
+        const jdParsed = JSON.parse(jdJsonStr);
+        
+        // Filter JD skills
+        mustHave = filterStopwords(jdParsed.mustHaveSkills || []);
+        niceToHave = filterStopwords(jdParsed.niceToHaveSkills || []);
+      }
+    } catch (jdErr) {
+      console.error("⚠️ JD extraction failed:", jdErr.message);
     }
     
-    const jdJsonStr = jdContent.substring(jdJsonStart, jdJsonEnd + 1);
-    const jdParsed = JSON.parse(jdJsonStr);
-    
-    // Filter JD skills
-    const mustHave = filterStopwords(jdParsed.mustHaveSkills || []);
-    const niceToHave = filterStopwords(jdParsed.niceToHaveSkills || []);
     const allJDSkills = [...mustHave, ...niceToHave];
 
     console.log("✅ JD Skills (must):", mustHave);

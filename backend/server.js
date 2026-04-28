@@ -6,6 +6,20 @@ const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
 const path = require('path');
 require('dotenv').config();
+
+// ============================
+// 🔍 VALIDATE ENVIRONMENT
+// ============================
+const requiredEnvVars = ['MONGODB_URI', 'JWT_SECRET', 'OPENAI_API_KEY'];
+const missingEnvVars = requiredEnvVars.filter(key => !process.env[key]);
+
+if (missingEnvVars.length > 0) {
+  console.error('❌ MISSING ENVIRONMENT VARIABLES:', missingEnvVars.join(', '));
+  console.error('⚠️  Please set all required environment variables before starting the server');
+  process.exit(1);
+}
+console.log('✅ All required environment variables are set');
+
 const authRoutes = require('./routes/auth');
 const resumeRoutes = require('./routes/resume');
 const interviewRoutes = require('./routes/interview');

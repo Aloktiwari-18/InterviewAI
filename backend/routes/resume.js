@@ -161,9 +161,13 @@ router.post('/analyze', protect, async (req, res) => {
       analysisMethod: analysis.analysisMethod
     });
   } catch (error) {
-    console.error('Resume analysis error:', error.message);
+    console.error('❌ Resume analysis error:', error.message);
+    console.error('Error stack:', error.stack);
+    console.error('Request body keys:', Object.keys(req.body));
+    
     res.status(500).json({ 
       error: error.message || 'Failed to analyze resume',
+      type: error.constructor.name,
       details: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
