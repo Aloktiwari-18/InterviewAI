@@ -1,139 +1,344 @@
-import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import { Eye, EyeOff, Zap, ArrowRight, CheckCircle } from 'lucide-react';
-import { useAuth } from '../context/AuthContext';
+import React, { createContext, useContext, useState, useEffect } from 'react';
+import axios from 'axios';
 import toast from 'react-hot-toast';
+import { authAPI } from '../utils/api';
 
-const perks = [
-  '15 free AI interviews per month',
-  'Full ATS resume analysis',
-  'Detailed feedback reports',
-  'Interview history & tracking',
-];
+const AuthContext = createContext(null);
 
-export default function RegisterPage() {
-  const [form, setForm] = useState({ name: '', email: '', password: '' });
-  const [showPass, setShowPass] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const { register } = useAuth();
-  const navigate = useNavigate();
+export const useAuth = () => {
+  const ctx = useContext(AuthContext);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (form.password.length < 6) {
-      toast.error('Password must be at least 6 characters');
-      return;
+  if (!ctx) {
+    throw new Error('useAuth must be used within AuthProvider');
+  }
+
+  return ctx;
+};
+
+export const AuthProvider = ({ children }) => {
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  const [token, setToken] = useState(
+    localStorage.getItem('token')
+  );
+
+  const [refreshToken, setRefreshToken] = useState(
+    localStorage.getItem('refreshToken')
+  );
+
+  // =====================================================
+  // SET AXIOS DEFAULT AUTHORIZATION HEADER
+  // =====================================================
+  useEffect(() => {
+    if (token) {
+      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+    } else {
+      delete axios.defaults.headers.common['Authorization'];
     }
-    setLoading(true);
+  }, [token]);
+
+  // =====================================================
+  // INITIALIZE AUTH
+  // =====================================================
+  useEffect(() => {
+    const initAuth = async () => {
+      if (!token) {
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const { data } = await authAPI.me();
+
+        setUser(data.user);
+      } catch (err) {
+        console.error('Failed to fetch user:', err);
+
+        // Try refresh token
+        if (refreshToken) {
+          try {
+            const { data } = await authAPI.refreshToken(refreshToken);
+
+            localStorage.setItem('token', data.token);
+
+            setToken(data.token);
+
+            if (data.refreshToken) {
+              localStorage.setItem(
+                'refreshToken',
+                data.refreshToken
+              );
+
+              setRefreshToken(data.refreshToken);
+            }
+
+            setUser(data.user);
+          } catch (refreshError) {
+            console.error(
+              'Initial token refresh failed:',
+              refreshError
+            );
+
+            localStorage.removeItem('token');
+            localStorage.removeItem('refreshToken');
+
+            setToken(null);
+            setRefreshToken(null);
+            setUser(null);
+          }
+        } else {
+          localStorage.removeItem('token');
+
+          setToken(null);
+          setUser(null);
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    initAuth();
+
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // =====================================================
+  // LOGIN
+  // =====================================================
+  const login = async (email, password) => {
     try {
-      await register(form.name, form.email, form.password);
-      toast.success('Account created! Welcome to InterviewAI 🎉');
-      navigate('/dashboard');
+      if (!email || !password) {
+        throw new Error('Email and password are required');
+      }
+
+      const { data } = await authAPI.login({
+        email,
+        password,
+      });
+
+      // Save access token
+      localStorage.setItem('token', data.token);
+
+      // Save refresh token if provided
+      if (data.refreshToken) {
+        localStorage.setItem(
+          'refreshToken',
+          data.refreshToken
+        );
+
+        setRefreshToken(data.refreshToken);
+      }
+
+      setToken(data.token);
+      setUser(data.user);
+
+      toast.success('Login successful!');
+
+      return data.user;
     } catch (err) {
-      toast.error(err?.response?.data?.error || err || 'Registration failed');
-    } finally {
-      setLoading(false);
+      console.error('Login error:', err);
+
+      const message =
+        err?.response?.data?.error ||
+        err?.response?.data?.message ||
+        err?.message ||
+        'Login failed';
+
+      toast.error(message);
+
+      throw err;
     }
   };
 
-  const strength = form.password.length >= 8 ? 'strong' : form.password.length >= 6 ? 'medium' : 'weak';
-  const strengthColor = { strong: '#10b981', medium: '#f59e0b', weak: '#ef4444' };
-  const strengthWidth = { strong: '100%', medium: '60%', weak: '30%' };
+  // =====================================================
+  // REGISTER
+  // =====================================================
+  // IMPORTANT:
+  // RegisterPage currently sends only:
+  // name, email, password
+  //
+  // Therefore confirmPassword has been removed.
+  // =====================================================
+  const register = async (name, email, password) => {
+    try {
+      // Basic validation
+      if (!name || !email || !password) {
+        throw new Error('All fields are required');
+      }
 
+      // Password validation
+      if (password.length < 8) {
+        throw new Error(
+          'Password must be at least 8 characters'
+        );
+      }
+
+      if (!/[A-Z]/.test(password)) {
+        throw new Error(
+          'Password must contain at least one uppercase letter'
+        );
+      }
+
+      if (!/[0-9]/.test(password)) {
+        throw new Error(
+          'Password must contain at least one number'
+        );
+      }
+
+      // Call backend register API
+      const { data } = await authAPI.register({
+        name,
+        email,
+        password,
+      });
+
+      console.log('Registration response:', data);
+
+      // Save access token
+      if (data.token) {
+        localStorage.setItem('token', data.token);
+        setToken(data.token);
+      }
+
+      // Save refresh token
+      if (data.refreshToken) {
+        localStorage.setItem(
+          'refreshToken',
+          data.refreshToken
+        );
+
+        setRefreshToken(data.refreshToken);
+      }
+
+      // Save user
+      if (data.user) {
+        setUser(data.user);
+      }
+
+      toast.success('Registration successful!');
+
+      return data.user;
+    } catch (err) {
+      console.error('Registration error:', err);
+
+      const message =
+        err?.response?.data?.error ||
+        err?.response?.data?.message ||
+        err?.message ||
+        'Registration failed';
+
+      toast.error(message);
+
+      throw err;
+    }
+  };
+
+  // =====================================================
+  // LOGOUT
+  // =====================================================
+  const logout = async () => {
+    try {
+      await authAPI.logout();
+    } catch (err) {
+      console.warn(
+        'Logout API call failed:',
+        err
+      );
+    } finally {
+      localStorage.removeItem('token');
+      localStorage.removeItem('refreshToken');
+
+      setToken(null);
+      setRefreshToken(null);
+      setUser(null);
+
+      delete axios.defaults.headers.common['Authorization'];
+
+      toast.success('Logged out successfully');
+    }
+  };
+
+  // =====================================================
+  // REFRESH ACCESS TOKEN
+  // =====================================================
+  const refreshAccessToken = async () => {
+    try {
+      if (!refreshToken) {
+        throw new Error(
+          'No refresh token available'
+        );
+      }
+
+      const { data } =
+        await authAPI.refreshToken(refreshToken);
+
+      localStorage.setItem(
+        'token',
+        data.token
+      );
+
+      setToken(data.token);
+
+      if (data.refreshToken) {
+        localStorage.setItem(
+          'refreshToken',
+          data.refreshToken
+        );
+
+        setRefreshToken(data.refreshToken);
+      }
+
+      return data.token;
+    } catch (err) {
+      console.error(
+        'Token refresh failed:',
+        err
+      );
+
+      localStorage.removeItem('token');
+      localStorage.removeItem('refreshToken');
+
+      setToken(null);
+      setRefreshToken(null);
+      setUser(null);
+
+      throw err;
+    }
+  };
+
+  // =====================================================
+  // UPDATE USER
+  // =====================================================
+  const updateUser = (updatedUser) => {
+    setUser(updatedUser);
+  };
+
+  // =====================================================
+  // CONTEXT VALUE
+  // =====================================================
+  const value = {
+    user,
+    loading,
+    token,
+    refreshToken,
+
+    login,
+    register,
+    logout,
+
+    refreshAccessToken,
+    updateUser,
+
+    isAuthenticated: !!token && !!user,
+  };
+
+  // =====================================================
+  // PROVIDER
+  // =====================================================
   return (
-    <div className="min-h-screen flex grid-bg" style={{ background: 'var(--bg-primary)' }}>
-      <div className="hidden lg:flex flex-1 flex-col items-center justify-center p-12 relative overflow-hidden"
-        style={{ background: 'linear-gradient(135deg, rgba(99,102,241,0.08), rgba(14,165,233,0.05))' }}>
-        <div className="absolute bottom-1/3 right-1/3 w-80 h-80 rounded-full blur-3xl opacity-20"
-          style={{ background: 'radial-gradient(circle, #0ea5e9, transparent)' }} />
-        <div className="relative z-10 max-w-md">
-          <h2 className="font-display text-4xl font-bold mb-4 gradient-text">Start free. Grow fast.</h2>
-          <p className="text-lg mb-10 leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-            Get instant access to all interview prep tools. No credit card required.
-          </p>
-          <div className="space-y-4">
-            {perks.map((p, i) => (
-              <motion.div key={i} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: i * 0.1 + 0.3 }}
-                className="flex items-center gap-3">
-                <CheckCircle size={20} style={{ color: '#10b981', flexShrink: 0 }} />
-                <span style={{ color: 'var(--text-secondary)' }}>{p}</span>
-              </motion.div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <div className="flex-1 flex items-center justify-center p-6 lg:p-12">
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-md">
-          <Link to="/" className="flex items-center gap-2 mb-8">
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center"
-              style={{ background: 'linear-gradient(135deg, var(--accent), var(--brand))' }}>
-              <Zap size={16} color="white" fill="white" />
-            </div>
-            <span className="font-display font-bold text-xl" style={{ color: 'var(--text-primary)' }}>
-              Interview<span className="gradient-text">AI</span>
-            </span>
-          </Link>
-
-          <h1 className="font-display text-3xl font-bold mb-2" style={{ color: 'var(--text-primary)' }}>Create your account</h1>
-          <p className="mb-8" style={{ color: 'var(--text-secondary)' }}>
-            Already have one? <Link to="/login" style={{ color: 'var(--accent)' }} className="font-medium">Sign in</Link>
-          </p>
-
-          <form onSubmit={handleSubmit} className="space-y-5">
-            <div>
-              <label className="block text-sm font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>Full name</label>
-              <input type="text" className="input" placeholder="John Doe"
-                value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>Email</label>
-              <input type="email" className="input" placeholder="you@example.com"
-                value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} required />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>Password</label>
-              <div className="relative">
-                <input type={showPass ? 'text' : 'password'} className="input pr-12"
-                  placeholder="At least 6 characters"
-                  value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} required />
-                <button type="button" onClick={() => setShowPass(!showPass)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-secondary)' }}>
-                  {showPass ? <EyeOff size={18} /> : <Eye size={18} />}
-                </button>
-              </div>
-              {form.password && (
-                <div className="mt-2">
-                  <div className="progress-bar mt-1">
-                    <div className="progress-fill" style={{ width: strengthWidth[strength], background: strengthColor[strength] }} />
-                  </div>
-                  <p className="text-xs mt-1 capitalize" style={{ color: strengthColor[strength] }}>
-                    {strength} password
-                  </p>
-                </div>
-              )}
-            </div>
-
-            <motion.button type="submit" disabled={loading}
-              whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.99 }}
-              className="btn-primary w-full flex items-center justify-center gap-2 py-3">
-              {loading ? (
-                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-              ) : (
-                <><span>Create account</span><ArrowRight size={16} /></>
-              )}
-            </motion.button>
-          </form>
-
-          <p className="text-xs text-center mt-6" style={{ color: 'var(--text-secondary)' }}>
-            By creating an account, you agree to our{' '}
-            <a href="#" style={{ color: 'var(--accent)' }}>Terms</a> and{' '}
-            <a href="#" style={{ color: 'var(--accent)' }}>Privacy Policy</a>.
-          </p>
-        </motion.div>
-      </div>
-    </div>
+    <AuthContext.Provider value={value}>
+      {children}
+    </AuthContext.Provider>
   );
-}
+};
