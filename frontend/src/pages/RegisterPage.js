@@ -34,13 +34,22 @@ export default function RegisterPage() {
   // =====================================================
   // HANDLE REGISTER
   // =====================================================
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
     console.log('🔥 SIGNUP BUTTON CLICKED');
-    console.log('🔥 FORM DATA:', form);
 
-    // Basic validation
+    console.log('🔥 FORM DATA:', {
+      name: form.name,
+      email: form.email,
+      password: '[HIDDEN]',
+    });
+
+    // ===================================================
+    // BASIC VALIDATION
+    // ===================================================
+
     if (!form.name.trim()) {
       toast.error('Please enter your full name');
       return;
@@ -51,14 +60,30 @@ export default function RegisterPage() {
       return;
     }
 
+    // ===================================================
+    // EMAIL VALIDATION
+    // ===================================================
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    if (!emailRegex.test(form.email.trim())) {
+      toast.error('Please enter a valid email address');
+      return;
+    }
+
+    // ===================================================
+    // PASSWORD VALIDATION
+    // ===================================================
+
     if (!form.password) {
       toast.error('Please enter a password');
       return;
     }
 
-    // Password validation
     if (form.password.length < 8) {
-      toast.error('Password must be at least 8 characters');
+      toast.error(
+        'Password must be at least 8 characters'
+      );
       return;
     }
 
@@ -76,9 +101,13 @@ export default function RegisterPage() {
       return;
     }
 
-    setLoading(true);
+    // ===================================================
+    // CALL REGISTER
+    // ===================================================
 
     try {
+      setLoading(true);
+
       console.log('🔥 CALLING REGISTER');
 
       const result = await register(
@@ -97,6 +126,10 @@ export default function RegisterPage() {
     } catch (err) {
       console.error('🔥 REGISTER ERROR:', err);
 
+      // Always convert the error to a string.
+      // This prevents React error #31 when an Error
+      // object is accidentally passed to the UI/toast.
+
       const message =
         err?.response?.data?.error ||
         err?.response?.data?.message ||
@@ -105,7 +138,7 @@ export default function RegisterPage() {
           ? err
           : 'Registration failed');
 
-      toast.error(message);
+      toast.error(String(message));
     } finally {
       setLoading(false);
     }
@@ -114,6 +147,7 @@ export default function RegisterPage() {
   // =====================================================
   // PASSWORD STRENGTH
   // =====================================================
+
   const strength =
     form.password.length >= 8
       ? 'strong'
@@ -136,14 +170,18 @@ export default function RegisterPage() {
   // =====================================================
   // UI
   // =====================================================
+
   return (
     <div
       className="min-h-screen flex grid-bg"
-      style={{ background: 'var(--bg-primary)' }}
+      style={{
+        background: 'var(--bg-primary)',
+      }}
     >
       {/* =================================================
           LEFT SIDE
       ================================================= */}
+
       <div
         className="hidden lg:flex flex-1 flex-col items-center justify-center p-12 relative overflow-hidden"
         style={{
@@ -166,7 +204,9 @@ export default function RegisterPage() {
 
           <p
             className="text-lg mb-10 leading-relaxed"
-            style={{ color: 'var(--text-secondary)' }}
+            style={{
+              color: 'var(--text-secondary)',
+            }}
           >
             Get instant access to all interview prep tools.
             No credit card required.
@@ -213,6 +253,7 @@ export default function RegisterPage() {
       {/* =================================================
           RIGHT SIDE
       ================================================= */}
+
       <div className="flex-1 flex items-center justify-center p-6 lg:p-12">
         <motion.div
           initial={{
@@ -225,7 +266,10 @@ export default function RegisterPage() {
           }}
           className="w-full max-w-md"
         >
-          {/* LOGO */}
+          {/* =================================================
+              LOGO
+          ================================================= */}
+
           <Link
             to="/"
             className="flex items-center gap-2 mb-8"
@@ -257,7 +301,10 @@ export default function RegisterPage() {
             </span>
           </Link>
 
-          {/* HEADING */}
+          {/* =================================================
+              HEADING
+          ================================================= */}
+
           <h1
             className="font-display text-3xl font-bold mb-2"
             style={{
@@ -288,11 +335,13 @@ export default function RegisterPage() {
           {/* =================================================
               REGISTER FORM
           ================================================= */}
+
           <form
             onSubmit={handleSubmit}
             className="space-y-5"
           >
             {/* NAME */}
+
             <div>
               <label
                 className="block text-sm font-medium mb-2"
@@ -316,10 +365,12 @@ export default function RegisterPage() {
                 }
                 required
                 autoComplete="name"
+                disabled={loading}
               />
             </div>
 
             {/* EMAIL */}
+
             <div>
               <label
                 className="block text-sm font-medium mb-2"
@@ -343,10 +394,12 @@ export default function RegisterPage() {
                 }
                 required
                 autoComplete="email"
+                disabled={loading}
               />
             </div>
 
             {/* PASSWORD */}
+
             <div>
               <label
                 className="block text-sm font-medium mb-2"
@@ -375,6 +428,7 @@ export default function RegisterPage() {
                   }
                   required
                   autoComplete="new-password"
+                  disabled={loading}
                 />
 
                 <button
@@ -387,6 +441,12 @@ export default function RegisterPage() {
                     color:
                       'var(--text-secondary)',
                   }}
+                  disabled={loading}
+                  aria-label={
+                    showPass
+                      ? 'Hide password'
+                      : 'Show password'
+                  }
                 >
                   {showPass ? (
                     <EyeOff size={18} />
@@ -397,6 +457,7 @@ export default function RegisterPage() {
               </div>
 
               {/* PASSWORD STRENGTH */}
+
               {form.password && (
                 <div className="mt-2">
                   <div className="progress-bar mt-1">
@@ -431,14 +492,15 @@ export default function RegisterPage() {
             </div>
 
             {/* SUBMIT */}
+
             <motion.button
               type="submit"
               disabled={loading}
               whileHover={{
-                scale: 1.01,
+                scale: loading ? 1 : 1.01,
               }}
               whileTap={{
-                scale: 0.99,
+                scale: loading ? 1 : 0.99,
               }}
               className="btn-primary w-full flex items-center justify-center gap-2 py-3"
             >
@@ -456,7 +518,10 @@ export default function RegisterPage() {
             </motion.button>
           </form>
 
-          {/* TERMS */}
+          {/* =================================================
+              TERMS
+          ================================================= */}
+
           <p
             className="text-xs text-center mt-6"
             style={{
@@ -469,6 +534,7 @@ export default function RegisterPage() {
               style={{
                 color: 'var(--accent)',
               }}
+              onClick={(e) => e.preventDefault()}
             >
               Terms
             </a>{' '}
@@ -478,6 +544,7 @@ export default function RegisterPage() {
               style={{
                 color: 'var(--accent)',
               }}
+              onClick={(e) => e.preventDefault()}
             >
               Privacy Policy
             </a>
